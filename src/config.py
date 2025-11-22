@@ -1,7 +1,13 @@
 import os
 
 # --- API KEYS ---
-GOOGLE_API_KEY = "lallalalalalalallalalalalalal" # Ganti Key Anda
+# JANGAN TULIS KEY LANGSUNG DISINI!
+# Ambil dari environment variable (file .env)
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") 
+
+# Jika lupa set env, kasih error biar sadar
+if not GOOGLE_API_KEY:
+    raise ValueError("❌ GOOGLE_API_KEY belum diset! Cek file .env atau environment server.")
 
 # --- PATHS ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
