@@ -10,9 +10,24 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- LOAD CONFIG ---
+# --- LOAD DATA FOR FILTER ---
+# REVISI: Filter berdasarkan data REAL di DB, bukan Config
+# Config hanya dipakai untuk mapping warna
 tags_config = utils.load_tags_config()
-all_tags = ["Semua Modul"] + sorted(list(tags_config.keys()))
+
+try:
+    db_tags = database.get_unique_tags_from_db()
+except Exception as e:
+    db_tags = []
+
+# Gabungkan logic:
+# Kalau DB kosong (awal deploy), pakai list dari config biar gak kopong banget dropdown-nya
+if not db_tags:
+    filter_options = sorted(list(tags_config.keys()))
+else:
+    filter_options = db_tags
+
+all_tags = ["Semua Modul"] + filter_options
 
 # --- HEADER ---
 st.title("🧠 Knowledge Base AI")
@@ -49,8 +64,16 @@ if query and not results:
     st.warning(f"❌ Tidak ditemukan hasil untuk '{query}' di kategori {selected_tag}.")
 
 for item in results:
-    tag_color = tags_config.get(item['tag'], "#808080")
+    # Logic Warna: Ambil dari config.
+    # Kalau tag di DB gak ada di config (misal udah dihapus admin), default ke abu-abu
+    tag_data = tags_config.get(item['tag'], "#808080")
     
+    # Handle struktur baru (Dict vs String)
+    if isinstance(tag_data, dict):
+        tag_color = tag_data.get("color", "#808080")
+    else:
+        tag_color = tag_data
+
     # HTML Badge Trick
     badge_html = f"<span style='background-color:{tag_color};color:white;padding:3px 8px;border-radius:4px;font-size:12px;'>{item['tag']}</span>"
     

@@ -7,14 +7,20 @@ import string
 from .config import TAGS_FILE, IMAGES_DIR
 
 # --- 1. JSON TAG CONFIG ---
+# Struktur JSON yang disarankan:
+# { "NamaTag": { "color": "#Hex", "desc": "Sinonim/Context" } }
+
 def load_tags_config():
     if not os.path.exists(TAGS_FILE):
+        # Default Struktur BARU (Nested Dict)
         default_tags = {
-            "ED": "#FF4B4B", "OPD": "#2ECC71", 
-            "IPD": "#3498DB", "HR": "#9B59B6", "Lainnya": "#7F8C8D"
+            "ED": {"color": "#FF4B4B", "desc": "IGD, Emergency"},
+            "OPD": {"color": "#2ECC71", "desc": "Rawat Jalan, Poli"},
+            "General": {"color": "#7F8C8D", "desc": "Umum"}
         }
         save_tags_config(default_tags)
         return default_tags
+        
     with open(TAGS_FILE, "r") as f:
         return json.load(f)
 

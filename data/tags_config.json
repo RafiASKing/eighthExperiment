@@ -1,7 +1,22 @@
 {
-    "ED": "#FF4B4B",
-    "OPD": "#2ECC71",
-    "IPD": "#3498DB",
-    "Lainnya": "#7F8C8D",
-    "Reimbursement": "#cea0a0"
+    "ED": {
+        "color": "#FF4B4B",
+        "desc": "IGD, Emergency"
+    },
+    "OPD": {
+        "color": "#2ECC71",
+        "desc": "Rawat Jalan, Poli"
+    },
+    "IPD": {
+        "color": "#3498DB",
+        "desc": "Rawat Inap, Bangsal"
+    },
+    "MR": {
+        "color": "#3498DB",
+        "desc": "Medical Record"
+    },
+    "Rehab": {
+        "color": "#3498DB",
+        "desc": "Fisioterapi, Rehab Medik"
+    }
 }

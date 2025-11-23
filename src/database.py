@@ -1,8 +1,17 @@
+try:
+    __import__('pysqlite3')
+    import sys
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    pass # Fallback jika pysqlite3 belum terinstall/tidak perlu
+
 import chromadb
 import pandas as pd
 from google import genai
 from google.genai import types
 from .config import GOOGLE_API_KEY, DB_PATH, COLLECTION_NAME
+from .utils import load_tags_config
+
 
 # --- SETUP CLIENTS ---
 client_ai = genai.Client(api_key=GOOGLE_API_KEY)
@@ -21,17 +30,18 @@ def generate_embedding(text):
 
 # --- LOGIKA CONTEXT BARU (Dari Request Kamu) ---
 def build_context_text(judul, jawaban, keyword, tag):
+    tags_cfg = load_tags_config()
+    
+    # Ambil context dari config (asumsi struktur JSON baru)
+    # Jika masih struktur lama (hanya warna), default string kosong
+    tag_data = tags_cfg.get(tag, {})
+    
+    # Fallback jika JSON masi format simple key:value warna
+    if isinstance(tag_data, str): 
+        extra_context = "" 
+    else:
+        extra_context = tag_data.get("context", "")
 
-    context_map = {
-        "IPD": "Rawat Inap, Bangsal",
-        "OPD": "Rawat Jalan, Poli",
-        "ED": "IGD, Emergency",
-        "MR": "Medical Record",
-        "Rehab": "Fisioterapi, Rehab Medik",
-    }
- 
-    extra_context = context_map.get(tag, "")
- 
     return f"""Modul Sistem: {tag}
 Sinonim/Konteks tambahan: {extra_context}
 
@@ -45,6 +55,21 @@ Keyword Tambahan (Slang/Error Code):
 {keyword}"""
 
 # --- CORE FEATURES ---
+def get_unique_tags_from_db():
+    """Mengambil semua tag unik yang BENAR-BENAR ADA di database"""
+    collection = get_collection()
+    # Kita hanya butuh metadata, jangan load dokumen/image path biar cepat
+    data = collection.get(include=['metadatas'])
+    
+    unique_tags = set()
+    if data['metadatas']:
+        for meta in data['metadatas']:
+            # Handle jaga-jaga kalau ada data lama tanpa key 'tag'
+            tag = meta.get('tag')
+            if tag:
+                unique_tags.add(tag)
+                
+    return sorted(list(unique_tags))
 
 def search_faq(query_text, filter_tag=None, n_results=3):
     collection = get_collection()
