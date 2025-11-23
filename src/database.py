@@ -1,17 +1,18 @@
+# --- 1. FORCE USE NEW SQLITE (Wajib di Paling Atas) ---
 try:
     __import__('pysqlite3')
     import sys
     sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 except ImportError:
-    pass # Fallback jika pysqlite3 belum terinstall/tidak perlu
+    pass 
 
+# --- 2. IMPORTS ---
 import chromadb
 import pandas as pd
 from google import genai
 from google.genai import types
 from .config import GOOGLE_API_KEY, DB_PATH, COLLECTION_NAME
 from .utils import load_tags_config
-
 
 # --- SETUP CLIENTS ---
 client_ai = genai.Client(api_key=GOOGLE_API_KEY)
@@ -28,22 +29,19 @@ def generate_embedding(text):
     )
     return response.embeddings[0].values
 
-# --- LOGIKA CONTEXT BARU (Dari Request Kamu) ---
 def build_context_text(judul, jawaban, keyword, tag):
     tags_cfg = load_tags_config()
     
-    # Ambil context dari config (asumsi struktur JSON baru)
-    # Jika masih struktur lama (hanya warna), default string kosong
+    # Ambil context dari config
     tag_data = tags_cfg.get(tag, {})
     
-    # Fallback jika JSON masi format simple key:value warna
-    if isinstance(tag_data, str): 
-        extra_context = "" 
+    if isinstance(tag_data, dict):
+        extra_context = tag_data.get("desc", "")
     else:
-        extra_context = tag_data.get("context", "")
+        extra_context = "" 
 
     return f"""Modul Sistem: {tag}
-Sinonim/Konteks tambahan: {extra_context}
+Konsep Terkait: {extra_context}
 
 Masalah/Pertanyaan:
 {judul}
@@ -51,27 +49,12 @@ Masalah/Pertanyaan:
 Solusi/Langkah-langkah:
 {jawaban}
 
-Keyword Tambahan (Slang/Error Code):
+Keyword Tambahan:
 {keyword}"""
 
-# --- CORE FEATURES ---
-def get_unique_tags_from_db():
-    """Mengambil semua tag unik yang BENAR-BENAR ADA di database"""
-    collection = get_collection()
-    # Kita hanya butuh metadata, jangan load dokumen/image path biar cepat
-    data = collection.get(include=['metadatas'])
-    
-    unique_tags = set()
-    if data['metadatas']:
-        for meta in data['metadatas']:
-            # Handle jaga-jaga kalau ada data lama tanpa key 'tag'
-            tag = meta.get('tag')
-            if tag:
-                unique_tags.add(tag)
-                
-    return sorted(list(unique_tags))
+# --- CORE FEATURES (USER) ---
 
-def search_faq(query_text, filter_tag=None, n_results=3):
+def search_faq(query_text, filter_tag=None, n_results=50):
     collection = get_collection()
     
     resp = client_ai.models.embed_content(
@@ -90,7 +73,44 @@ def search_faq(query_text, filter_tag=None, n_results=3):
     )
     return results
 
-# --- UPDATE: MENAMPILKAN CONTEXT & EMBEDDING ---
+def get_all_faqs_sorted():
+    """Mengambil SEMUA metadata urut ID terbaru (untuk Pagination)"""
+    collection = get_collection()
+    data = collection.get(include=['metadatas'])
+    
+    results = []
+    if data['ids']:
+        for i, doc_id in enumerate(data['ids']):
+            meta = data['metadatas'][i]
+            
+            try: id_num = int(doc_id)
+            except: id_num = 0
+                
+            results.append({
+                "id": doc_id,
+                "id_num": id_num, 
+                "tag": meta.get('tag', 'Umum'),
+                "judul": meta.get('judul', '-'),
+                "jawaban_tampil": meta.get('jawaban_tampil', ''),
+                "path_gambar": meta.get('path_gambar', 'none'),
+                "sumber_url": meta.get('sumber_url', '')
+            })
+    
+    # Sort Descending (Terbaru diatas)
+    results.sort(key=lambda x: x['id_num'], reverse=True)
+    return results
+
+def get_unique_tags_from_db():
+    collection = get_collection()
+    data = collection.get(include=['metadatas'])
+    unique_tags = set()
+    if data['metadatas']:
+        for meta in data['metadatas']:
+            if meta.get('tag'): unique_tags.add(meta['tag'])
+    return sorted(list(unique_tags))
+
+# --- CORE FEATURES (ADMIN) ---
+
 def get_all_data_as_df():
     collection = get_collection()
     data = collection.get(include=['metadatas', 'documents', 'embeddings'])
@@ -98,25 +118,8 @@ def get_all_data_as_df():
     if not data['ids']: return pd.DataFrame()
     
     rows = []
-    # Ambil list embeddings ke variabel dulu biar aman
-    all_embeddings = data.get('embeddings') 
-    
     for i, doc_id in enumerate(data['ids']):
         meta = data['metadatas'][i]
-        
-        # Ambil Context
-        context_full = data['documents'][i] if data['documents'] else ""
-        
-        # --- PERBAIKAN ERROR VALUE ERROR DI SINI ---
-        # Cek pakai len() agar aman untuk NumPy Array maupun List
-        embed_vec = []
-        if all_embeddings is not None and len(all_embeddings) > 0:
-            embed_vec = all_embeddings[i]
-            
-        # Preview 5 angka pertama
-        embed_preview = str(embed_vec[:5]) + "..." if len(embed_vec) > 0 else "[]"
-        # -------------------------------------------
-
         rows.append({
             "ID": doc_id,
             "Tag": meta.get('tag', '-'),
@@ -125,8 +128,7 @@ def get_all_data_as_df():
             "Keyword": meta.get('keywords_raw', ''),
             "Gambar": meta.get('path_gambar', 'none'),
             "Source": meta.get('sumber_url', ''),
-            "AI Context": context_full,
-            "Embed Vector": embed_preview
+            "AI Context": data['documents'][i] if data['documents'] else ""
         })
     
     df = pd.DataFrame(rows)
@@ -134,10 +136,8 @@ def get_all_data_as_df():
     df = df.sort_values('ID_Num', ascending=False).drop(columns=['ID_Num'])
     return df
 
-
 def upsert_faq(doc_id, tag, judul, jawaban, keyword, img_paths, src_url):
     collection = get_collection()
-    # Panggil logic combiner baru
     text_embed = build_context_text(judul, jawaban, keyword, tag)
     vector = generate_embedding(text_embed)
     
