@@ -9,8 +9,7 @@ from src import database, utils
 st.set_page_config(page_title="Siloam Knowledge Base", page_icon="🏥", layout="centered")
 
 # Matikan warning deprecation
-st.set_option('deprecation.showImageUploaderEncoding', False)
-st.set_option('deprecation.showfileUploaderEncoding', False)
+# (Kode lama dihapus karena sudah tidak supported di Streamlit baru)
 warnings.filterwarnings("ignore")
 
 # Load Konfigurasi Tag dari JSON (Single Source of Truth)
@@ -107,12 +106,12 @@ if 'last_query' not in st.session_state: st.session_state.last_query = ""
 if 'last_filter' not in st.session_state: st.session_state.last_filter = ""
 
 # --- 4. HEADER UI ---
-st.title("🏥 EMR FAQ Finder")
-st.caption("Knowledge Base Cerdas untuk Staf Medis (Support Semantic Search)")
+st.title("⚡Fast Cognitive Search System")
+st.caption("Smart Knowledge Base Retrieval")
 
 col_q, col_f = st.columns([3, 1])
 with col_q:
-    query = st.text_input("Cari Kendala:", placeholder="Ketik masalah (cth: Retur Obat, Error 404)...")
+    query = st.text_input("Cari isu/kendala:", placeholder="Ketik masalah (cth: Kenapa Gagal Retur Obat, gagal discharge)...")
 with col_f:
     # Ambil tag unik dari DB agar dropdown dinamis
     try:
@@ -141,8 +140,8 @@ if query:
             dist = raw['distances'][0][i]
             score = max(0, (1 - dist) * 100)
             
-            # === THRESHOLD 25% ===
-            if score > 25:
+            # === THRESHOLD 32% ===
+            if score > 32:
                 meta['score'] = score
                 results.append(meta)
 else:
@@ -173,7 +172,7 @@ if not page_data:
         except: pass
         
         # === CALL TO ACTION (WA BOT) ===
-        st.warning(f"❌ Tidak ditemukan hasil yang relevan (Relevansi < 25%).")
+        st.warning(f"❌ Tidak ditemukan hasil yang relevan (Relevansi < 32%).")
         
         st.markdown("""
         ### 🧐 Belum ada solusinya?
