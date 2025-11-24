@@ -1227,7 +1227,9 @@ import re
 import random
 import string
 import time
-from .config import TAGS_FILE, IMAGES_DIR
+import csv
+from datetime import datetime
+from .config import TAGS_FILE, IMAGES_DIR, BASE_DIR 
 
 # --- DAFTAR WARNA RESMI STREAMLIT (Restricted Palette) ---
 # Admin hanya boleh memilih warna ini agar badge di UI User valid
@@ -1328,9 +1330,6 @@ def clean_text_for_embedding(text):
     clean = re.sub(r'\[GAMBAR\s*\d+\]', '', text, flags=re.IGNORECASE)
     # Hapus whitespace berlebih akibat penghapusan tadi
     return " ".join(clean.split())
-
-import csv
-from datetime import datetime
 
 def log_failed_search(query):
     """Mencatat pencarian yang hasilnya 0 ke file CSV"""
