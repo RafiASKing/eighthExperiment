@@ -157,6 +157,7 @@ def get_unique_tags_from_db():
 # --- 8. CORE LOGIC (WRITE - ADMIN) ---
 # Admin selalu diakses via Streamlit, jadi aman pakai retry dan logic biasa.
 
+@st.cache_data(show_spinner=False)
 def get_all_data_as_df():
     col = get_collection()
     data = col.get(include=['metadatas', 'documents'])

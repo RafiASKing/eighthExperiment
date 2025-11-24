@@ -33,14 +33,16 @@ if 'draft_data' not in st.session_state: st.session_state.draft_data = {}
 
 # Tabs
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📊 Database", "➕ New FaQ)", "✏️ Edit/Delete FaQ", "⚙️ Config Tags", "📈 Analytics"
+    "📊 Database", "➕ New FaQ", "✏️ Edit/Delete FaQ", "⚙️ Config Tags", "📈 Analytics"
 ])
 
 # === TAB 1: LIST DATA ===
 with tab1:
     if st.button("🔄 Refresh Data"):
-        st.cache_data.clear()
+        # CLEAR CACHE DISINI (MANUAL REFRESH)
+        database.get_all_data_as_df.clear()
         st.rerun()
+        
     df = database.get_all_data_as_df()
     st.dataframe(df, use_container_width=True, hide_index=True)
 
@@ -97,7 +99,7 @@ with tab2:
                    help="Buat List", use_container_width=True)
         
         # Tombol Ajaib
-        tb3.button("+ Klik ini untuk penempatan gambar", on_click=add_next_image_tag, 
+        tb3.button("+ Klik ini untuk add penanda gambar", on_click=add_next_image_tag, 
                    type="primary", icon="🖼️", use_container_width=True,
                    help="Otomatis memasukkan tag [GAMBAR 1], [GAMBAR 2], dst.")
 
@@ -110,7 +112,7 @@ with tab2:
         with c_k: 
             st.markdown("Term terkait / Bahasa User (HyDE) 👇")
             i_key = st.text_input("Hidden Label", value=default_key, key="in_k", 
-                                  placeholder="Contoh: Gabisa login, User not found, Tombol mati...",
+                                  placeholder="Contoh: Gabisa login, User not found, Kok gagal discharge?...",
                                   label_visibility="collapsed",
                                   help="Masukkan kata-kata yang mungkin diketik user saat panik.")
             
@@ -192,10 +194,12 @@ with tab2:
                         st.balloons()
                         st.success(f"✅ Data Tersimpan! ID Dokumen: {new_id}")
                         
+                        # === [1] CLEAR CACHE (WAJIB) ===
+                        database.get_all_data_as_df.clear()
+                        
                         # Reset
                         st.session_state.preview_mode = False
                         st.session_state.draft_data = {}
-                        database.get_all_data_as_df.clear()
                         time.sleep(2)
                         st.rerun()
                 except Exception as e: 
@@ -239,14 +243,20 @@ with tab3:
                     
                     database.upsert_faq(sel_id, e_tag, e_jud, e_jaw, e_key, p, e_src)
                     st.toast("Data Updated!", icon="✅")
+                    
+                    # === [2] CLEAR CACHE (WAJIB) ===
                     database.get_all_data_as_df.clear()
+                    
                     time.sleep(1)
                     st.rerun()
                 
                 if c_del.form_submit_button("🗑️ HAPUS PERMANEN", type="primary"):
                     database.delete_faq(sel_id)
                     st.toast("Data & Gambar Dihapus.", icon="🗑️")
+                    
+                    # === [3] CLEAR CACHE (WAJIB) ===
                     database.get_all_data_as_df.clear()
+                    
                     time.sleep(1)
                     st.rerun()
 

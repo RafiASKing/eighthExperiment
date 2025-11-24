@@ -436,8 +436,8 @@ if query:
             dist = raw['distances'][0][i]
             score = max(0, (1 - dist) * 100)
             
-            # === THRESHOLD 25% ===
-            if score > 25:
+            # === THRESHOLD 32% ===
+            if score > 32:
                 meta['score'] = score
                 results.append(meta)
 else:
@@ -468,7 +468,7 @@ if not page_data:
         except: pass
         
         # === CALL TO ACTION (WA BOT) ===
-        st.warning(f"❌ Tidak ditemukan hasil yang relevan (Relevansi < 25%).")
+        st.warning(f"❌ Tidak ditemukan hasil yang relevan (Relevansi < 32%).")
         
         st.markdown("""
         ### 🧐 Belum ada solusinya?
@@ -1473,8 +1473,8 @@ if query:
             dist = raw['distances'][0][i]
             score = max(0, (1 - dist) * 100)
             
-            # === THRESHOLD 25% ===
-            if score > 25:
+            # === THRESHOLD 32% ===
+            if score > 32:
                 meta['score'] = score
                 results.append(meta)
 else:
@@ -1505,7 +1505,7 @@ if not page_data:
         except: pass
         
         # === CALL TO ACTION (WA BOT) ===
-        st.warning(f"❌ Tidak ditemukan hasil yang relevan (Relevansi < 25%).")
+        st.warning(f"❌ Tidak ditemukan hasil yang relevan (Relevansi < 32%).")
         
         st.markdown("""
         ### 🧐 Belum ada solusinya?

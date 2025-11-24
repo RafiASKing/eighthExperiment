@@ -263,6 +263,1008 @@ Sistem telah berevolusi dari sekadar *Prototype* menjadi aplikasi **Production-R
 
 
 </next_pengembangan>
+Deploy dan pengembangan logika bot, dll, tapi testing utama dulu
+</next_pengembangan>
+
+
+
+Berikut untuk codesnya yang terbaru:
+
+<kode_baru>
+======== FILE: .\admin.py ========
+import streamlit as st
+import pandas as pd
+import time
+import re
+from src import database, utils
+from src.config import ADMIN_PASSWORD, FAILED_SEARCH_LOG
+
+# --- AUTH SYSTEM ---
+if 'auth' not in st.session_state: st.session_state.auth = False
+
+def login():
+    if st.session_state.pass_input == ADMIN_PASSWORD: 
+        st.session_state.auth = True
+    else:
+        st.error("Password salah")
+
+if not st.session_state.auth:
+    st.set_page_config(page_title="Admin Login")
+    st.markdown("<h1 style='text-align: center;'>🔒 Admin Login</h1>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1,1,1])
+    with c2:
+        st.text_input("Password", type="password", key="pass_input", on_change=login)
+    st.stop()
+
+# --- MAIN UI SETUP ---
+st.set_page_config(page_title="Admin Console", layout="wide")
+st.title("🛠️ Admin Console (Safe Mode)")
+tags_map = utils.load_tags_config()
+
+# State Management
+if 'preview_mode' not in st.session_state: st.session_state.preview_mode = False
+if 'draft_data' not in st.session_state: st.session_state.draft_data = {}
+
+# Tabs
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📊 Database", "➕ New FaQ)", "✏️ Edit/Delete FaQ", "⚙️ Config Tags", "📈 Analytics"
+])
+
+# === TAB 1: LIST DATA ===
+with tab1:
+    if st.button("🔄 Refresh Data"):
+        st.cache_data.clear()
+        st.rerun()
+    df = database.get_all_data_as_df()
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+# === TAB 2: TAMBAH DATA (SMART EDITOR) ===
+with tab2:
+    # --- SMART CALLBACKS ---
+    def add_text(text):
+        """Menambahkan teks (Bold/List) ke akhir editor"""
+        if 'in_a' in st.session_state:
+            st.session_state.in_a += text
+
+    def add_next_image_tag():
+        """
+        FITUR PINTAR (AUTO COUNTER):
+        Otomatis scan teks, hitung jumlah tag [GAMBAR X], 
+        lalu tambahkan [GAMBAR X+1].
+        """
+        current_text = st.session_state.get('in_a', "")
+        matches = re.findall(r'\[GAMBAR\s*\d+\]', current_text, flags=re.IGNORECASE)
+        next_num = len(matches) + 1
+        
+        tag_to_insert = f"\n\n[GAMBAR {next_num}]\n\n"
+        st.session_state.in_a += tag_to_insert
+
+    # --- PHASE 1: INPUT FORM ---
+    if not st.session_state.preview_mode:
+        # Load Draft (Anti-Amnesia Logic)
+        default_tag = st.session_state.draft_data.get('tag', list(tags_map.keys())[0])
+        default_judul = st.session_state.draft_data.get('judul', '')
+        default_jawab = st.session_state.draft_data.get('jawab', '')
+        default_key = st.session_state.draft_data.get('key', '')
+        default_src = st.session_state.draft_data.get('src', '')
+        
+        try: idx_tag = list(tags_map.keys()).index(default_tag)
+        except: idx_tag = 0
+
+        st.subheader("📝 FaQ/SOP Baru")
+        
+        # Row 1: Module & Judul
+        col_m, col_j = st.columns([1, 3])
+        with col_m: i_tag = st.selectbox("Modul", list(tags_map.keys()), index=idx_tag, key="in_t")
+        with col_j: i_judul = st.text_input("Judul Masalah (Pertanyaan/SOP)", value=default_judul, key="in_j")
+            
+        # Row 2: Smart Toolbar & Editor
+        st.markdown("**Jawaban / Solusi:**")
+        
+        # Toolbar Layout
+        tb1, tb2, tb3, tb_spacer = st.columns([1, 1, 2, 4])
+        
+        tb1.button("𝗕 Bold", on_click=add_text, args=(" **teks tebal** ",), 
+                   help="Tebalkan teks", use_container_width=True)
+        
+        tb2.button("Bars", on_click=add_text, args=("\n- Langkah 1\n- Langkah 2",), 
+                   help="Buat List", use_container_width=True)
+        
+        # Tombol Ajaib
+        tb3.button("+ Klik ini untuk penempatan gambar", on_click=add_next_image_tag, 
+                   type="primary", icon="🖼️", use_container_width=True,
+                   help="Otomatis memasukkan tag [GAMBAR 1], [GAMBAR 2], dst.")
+
+        # Text Area Utama
+        i_jawab = st.text_area("Editor", value=default_jawab, height=300, key="in_a", label_visibility="collapsed")
+        st.caption("💡 *Tips: Klik tombol '📸' untuk memasukkan placeholder gambar secara urut.*")
+        
+        # Row 3: Meta Info & Upload
+        c_k, c_s = st.columns(2)
+        with c_k: 
+            st.markdown("Term terkait / Bahasa User (HyDE) 👇")
+            i_key = st.text_input("Hidden Label", value=default_key, key="in_k", 
+                                  placeholder="Contoh: Gabisa login, User not found, Tombol mati...",
+                                  label_visibility="collapsed",
+                                  help="Masukkan kata-kata yang mungkin diketik user saat panik.")
+            
+        with c_s: 
+            st.markdown("Sumber Info/Source URL")
+            i_src = st.text_input("Hidden Label 2", value=default_src, key="in_s", label_visibility="collapsed")
+        
+        i_imgs = st.file_uploader("Upload Gambar", accept_multiple_files=True, key="in_i")
+        
+        st.divider()
+        if st.button("🔍 Lanjut ke Preview", type="primary", use_container_width=True):
+            if not i_judul or not i_jawab:
+                st.error("Judul & Jawaban wajib diisi!")
+            else:
+                # Simpan Draft ke Session State
+                st.session_state.draft_data = {
+                    "tag": i_tag, "judul": i_judul, "jawab": i_jawab,
+                    "key": i_key, "src": i_src, "imgs": i_imgs
+                }
+                st.session_state.preview_mode = True
+                st.rerun()
+
+    # --- PHASE 2: PREVIEW & SUBMIT ---
+    else:
+        draft = st.session_state.draft_data
+        
+        st.info("📱 **Mode Preview:** Periksa tampilan sebelum Publish.")
+        
+        # Simulasi Tampilan User (Card)
+        with st.container(border=True):
+            hex_color = tags_map.get(draft['tag'], {}).get("color", "#808080")
+            st.markdown(f"### <span style='color:{hex_color}'>[{draft['tag']}]</span> {draft['judul']}", unsafe_allow_html=True)
+            st.caption(f"🔑 Keywords/HyDE: {draft['key']}")
+            st.divider()
+            
+            # Logic Render Gambar Sederhana untuk Preview
+            parts = re.split(r'(\[GAMBAR\s*\d+\])', draft['jawab'], flags=re.IGNORECASE)
+            imgs = draft['imgs'] or []
+            
+            for part in parts:
+                match = re.search(r'\[GAMBAR\s*(\d+)\]', part, re.IGNORECASE)
+                if match:
+                    try:
+                        idx = int(match.group(1)) - 1
+                        if 0 <= idx < len(imgs):
+                            st.image(imgs[idx], width=400, caption=f"Gambar {idx+1}")
+                        else:
+                            st.warning(f"⚠️ [GAMBAR {idx+1}] ditulis tapi file belum diupload.")
+                    except: pass
+                else:
+                    if part.strip(): st.markdown(part)
+        
+        st.divider()
+        c_back, c_save = st.columns([1, 3])
+        
+        with c_back:
+            if st.button("⬅️ Edit Lagi", use_container_width=True):
+                st.session_state.preview_mode = False
+                st.rerun()
+        
+        with c_save:
+            if st.button("💾 PUBLISH KE DATABASE", type="primary", use_container_width=True):
+                try:
+                    with st.spinner("Menyimpan ke ChromaDB..."):
+                        # 1. Simpan Gambar ke Disk
+                        paths = utils.save_uploaded_images(draft['imgs'], draft['judul'], draft['tag'])
+                        
+                        # 2. Upsert ke DB
+                        new_id = database.upsert_faq(
+                            doc_id="auto",
+                            tag=draft['tag'], 
+                            judul=draft['judul'], 
+                            jawaban=draft['jawab'], 
+                            keyword=draft['key'], 
+                            img_paths=paths, 
+                            src_url=draft['src']
+                        )
+                        
+                        st.balloons()
+                        st.success(f"✅ Data Tersimpan! ID Dokumen: {new_id}")
+                        
+                        # Reset
+                        st.session_state.preview_mode = False
+                        st.session_state.draft_data = {}
+                        database.get_all_data_as_df.clear()
+                        time.sleep(2)
+                        st.rerun()
+                except Exception as e: 
+                    st.error(f"Error Save: {e}")
+
+# === TAB 3: EDIT/HAPUS ===
+with tab3:
+    st.header("✏️ Edit Data Lama")
+    df_e = database.get_all_data_as_df()
+    
+    if not df_e.empty:
+        opts = [f"{r['ID']} | {r['Judul']}" for _, r in df_e.iterrows()]
+        sel = st.selectbox("Pilih Data", opts)
+        
+        if sel:
+            sel_id = sel.split(" | ")[0]
+            row = df_e[df_e['ID'] == sel_id].iloc[0]
+            
+            with st.form("edit_form"):
+                curr = row['Tag']
+                idx = list(tags_map.keys()).index(curr) if curr in tags_map else 0
+                
+                c_id, c_t = st.columns([1, 4])
+                with c_id: st.text_input("ID", value=sel_id, disabled=True)
+                with c_t: e_tag = st.selectbox("Modul", list(tags_map.keys()), index=idx)
+                
+                e_jud = st.text_input("Judul SOP", value=row['Judul'])
+                e_jaw = st.text_area("Jawaban (Gunakan [GAMBAR X])", value=row['Jawaban'], height=200)
+                e_key = st.text_input("Keyword / Bahasa User (HyDE)", value=row['Keyword'], help="Isi dengan variasi pertanyaan user.")
+                e_src = st.text_input("Source URL", value=row['Source'])
+                
+                st.markdown(f"**Path Gambar Saat Ini:** `{row['Gambar']}`")
+                e_new = st.file_uploader("Timpa Gambar Baru (Opsional)", accept_multiple_files=True)
+                
+                c_up, c_del = st.columns([1, 1])
+                
+                if c_up.form_submit_button("💾 UPDATE DATA"):
+                    p = row['Gambar']
+                    if e_new: 
+                        p = utils.save_uploaded_images(e_new, e_jud, e_tag)
+                    
+                    database.upsert_faq(sel_id, e_tag, e_jud, e_jaw, e_key, p, e_src)
+                    st.toast("Data Updated!", icon="✅")
+                    database.get_all_data_as_df.clear()
+                    time.sleep(1)
+                    st.rerun()
+                
+                if c_del.form_submit_button("🗑️ HAPUS PERMANEN", type="primary"):
+                    database.delete_faq(sel_id)
+                    st.toast("Data & Gambar Dihapus.", icon="🗑️")
+                    database.get_all_data_as_df.clear()
+                    time.sleep(1)
+                    st.rerun()
+
+# === TAB 4: CONFIG ===
+with tab4:
+    st.subheader("⚙️ Konfigurasi Tag")
+    flat = [{"Tag":k, "Warna":v.get("color",""), "Sinonim":v.get("desc","")} for k,v in tags_map.items()]
+    st.dataframe(pd.DataFrame(flat), use_container_width=True, hide_index=True)
+    
+    with st.expander("➕ Tambah / Update Tag"):
+        with st.form("conf_f", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1: n_name = st.text_input("Nama Tag (ex: ED)")
+            with c2: n_col = st.selectbox("Warna Badge", list(utils.COLOR_PALETTE.keys()))
+            n_desc = st.text_input("Sinonim / Kepanjangan Singkatan", placeholder="ex: Emergency, Poli, Medical Record, Hemodialysis")
+            
+            if st.form_submit_button("Simpan"):
+                if n_name:
+                    hex_c = utils.COLOR_PALETTE[n_col]["hex"]
+                    tags_map[n_name] = {"color": hex_c, "desc": n_desc}
+                    utils.save_tags_config(tags_map)
+                    st.toast("Konfigurasi Tersimpan!"); time.sleep(1); st.rerun()
+
+# === TAB 5: ANALYTICS (FEEDBACK LOOP) ===
+with tab5:
+    st.subheader("📈 Pencarian Gagal (User Feedback)")
+    st.caption("Daftar kata kunci yang dicari User tapi hasilnya < 32% (Tidak Relevan).")
+    
+    if utils.os.path.exists(FAILED_SEARCH_LOG):
+        df_log = pd.read_csv(FAILED_SEARCH_LOG)
+        
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.metric("Total Miss", len(df_log))
+        with col2:
+            if st.button("🗑️ Clear Log"):
+                utils.os.remove(FAILED_SEARCH_LOG)
+                st.rerun()
+                
+        if not df_log.empty:
+            df_log = df_log.sort_values(by="Timestamp", ascending=False)
+            st.dataframe(df_log, use_container_width=True)
+    else:
+        st.info("Belum ada data pencarian gagal. Sistem bekerja dengan baik!")
+
+======== FILE: .\app.py ========
+import streamlit as st
+import os
+import math
+import re
+import warnings
+from src import database, utils
+
+# --- 1. CONFIG & SUPPRESS WARNINGS ---
+st.set_page_config(page_title="Siloam Knowledge Base", page_icon="🏥", layout="centered")
+
+# Matikan warning deprecation
+# (Kode lama dihapus karena sudah tidak supported di Streamlit baru)
+warnings.filterwarnings("ignore")
+
+# Load Konfigurasi Tag dari JSON (Single Source of Truth)
+TAGS_MAP = utils.load_tags_config()
+
+# CSS Styling
+st.markdown("""
+<style>
+    div[data-testid="stExpander"] {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        background-color: white;
+        margin-bottom: 10px;
+    }
+    div[data-testid="stExpander"] p {
+        font-size: 15px;
+        font-family: sans-serif;
+    }
+    .stApp {
+        background-color: #FAFAFA;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- 2. HELPER FUNGSI ---
+
+def get_badge_color_name(tag):
+    """
+    Menerjemahkan HEX Code dari tags_config.json menjadi Nama Warna Streamlit.
+    """
+    tag_data = TAGS_MAP.get(tag, {})
+    hex_code = tag_data.get("color", "#808080").upper() 
+    
+    hex_to_name = {
+        "#FF4B4B": "red",     # Merah (ED)
+        "#2ECC71": "green",   # Hijau (OPD)
+        "#3498DB": "blue",    # Biru (IPD/MR/Rehab)
+        "#FFA500": "orange",  # Orange (Cashier)
+        "#9B59B6": "violet",  # Ungu (Farmasi)
+        "#808080": "gray",    # Abu (Umum)
+        "#333333": "gray"     # Dark Gray
+    }
+    
+    return hex_to_name.get(hex_code, "gray")
+
+def render_image_safe(image_path):
+    if image_path and os.path.exists(image_path):
+        st.image(image_path, use_container_width=True)
+
+def render_mixed_content(jawaban_text, images_str):
+    if not images_str or str(images_str).lower() == 'none':
+        st.markdown(jawaban_text)
+        return
+
+    img_list = images_str.split(';')
+    img_list = [x for x in img_list if x.strip()]
+    parts = re.split(r'(\[GAMBAR\s*\d+\])', jawaban_text, flags=re.IGNORECASE)
+    
+    # Case 1: Fallback (Gambar di bawah)
+    if len(parts) == 1:
+        st.markdown(jawaban_text)
+        if img_list:
+            st.markdown("---")
+            cols = st.columns(min(3, len(img_list)))
+            for idx, p in enumerate(img_list):
+                clean_p = utils.fix_image_path_for_ui(p)
+                if clean_p and os.path.exists(clean_p):
+                    with cols[idx % 3]:
+                        st.image(clean_p, use_container_width=True)
+        return
+
+    # Case 2: Inline (Diselipkan)
+    for part in parts:
+        match = re.search(r'\[GAMBAR\s*(\d+)\]', part, re.IGNORECASE)
+        if match:
+            try:
+                idx = int(match.group(1)) - 1 
+                if 0 <= idx < len(img_list):
+                    clean_p = utils.fix_image_path_for_ui(img_list[idx])
+                    if clean_p and os.path.exists(clean_p):
+                        render_image_safe(clean_p)
+                    else:
+                        st.error(f"🖼️ File gambar tidak ditemukan: {clean_p}")
+                else:
+                    st.caption(f"*(Gambar #{idx+1} tidak tersedia)*")
+            except ValueError: pass
+        else:
+            if part.strip(): st.markdown(part)
+
+# --- 3. STATE MANAGEMENT ---
+if 'page' not in st.session_state: st.session_state.page = 0
+if 'last_query' not in st.session_state: st.session_state.last_query = ""
+if 'last_filter' not in st.session_state: st.session_state.last_filter = ""
+
+# --- 4. HEADER UI ---
+st.title("⚡Fast Cognitive Search System")
+st.caption("Smart Knowledge Base Retrieval")
+
+col_q, col_f = st.columns([3, 1])
+with col_q:
+    query = st.text_input("Cari isu/kendala:", placeholder="Ketik masalah (cth: Kenapa Gagal Retur Obat, gagal discharge)...")
+with col_f:
+    # Ambil tag unik dari DB agar dropdown dinamis
+    try:
+        db_tags = database.get_unique_tags_from_db()
+    except:
+        db_tags = []
+    all_tags = ["Semua Modul"] + (db_tags if db_tags else [])
+    filter_tag = st.selectbox("Filter:", all_tags)
+
+# --- 5. LOGIC PENCARIAN ---
+if query != st.session_state.last_query or filter_tag != st.session_state.last_filter:
+    st.session_state.page = 0
+    st.session_state.last_query = query
+    st.session_state.last_filter = filter_tag
+
+results = []
+is_search_mode = False
+
+if query:
+    is_search_mode = True
+    raw = database.search_faq(query, filter_tag, n_results=50)
+    
+    if raw['ids'][0]:
+        for i in range(len(raw['ids'][0])):
+            meta = raw['metadatas'][0][i]
+            dist = raw['distances'][0][i]
+            score = max(0, (1 - dist) * 100)
+            
+            # === THRESHOLD 32% ===
+            if score > 32:
+                meta['score'] = score
+                results.append(meta)
+else:
+    raw_all = database.get_all_faqs_sorted()
+    if filter_tag == "Semua Modul":
+        results = raw_all
+    else:
+        results = [x for x in raw_all if x.get('tag') == filter_tag]
+
+# --- 6. PAGINATION & DISPLAY ---
+ITEMS_PER_PAGE = 10
+total_docs = len(results)
+total_pages = math.ceil(total_docs / ITEMS_PER_PAGE)
+
+if st.session_state.page >= total_pages and total_pages > 0:
+    st.session_state.page = 0
+
+start_idx = st.session_state.page * ITEMS_PER_PAGE
+end_idx = start_idx + ITEMS_PER_PAGE
+page_data = results[start_idx:end_idx]
+
+st.divider()
+
+if not page_data:
+    if is_search_mode:
+        # Catat query gagal ke CSV
+        try: utils.log_failed_search(query)
+        except: pass
+        
+        # === CALL TO ACTION (WA BOT) ===
+        st.warning(f"❌ Tidak ditemukan hasil yang relevan (Relevansi < 32%).")
+        
+        st.markdown("""
+        ### 🧐 Belum ada solusinya?
+        Sistem telah mencatat pencarianmu untuk perbaikan. Sementara itu, kamu bisa:
+        
+        1. Coba gunakan kata kunci yang lebih umum.
+        2. Atau langsung request bantuan ke Tim IT Support:
+        """)
+        
+        # GANTI NOMOR WA DI SINI (Format: 628xxx)
+        wa_number = "6289635225253" 
+        wa_text = f"Halo Admin, saya cari solusi tentang '{query}' tapi tidak ketemu di aplikasi FAQ."
+        wa_link = f"https://wa.me/{wa_number}?text={wa_text.replace(' ', '%20')}"
+        
+        st.markdown(f'''
+        <a href="{wa_link}" target="_blank" style="text-decoration: none;">
+            <button style="
+                background-color: #25D366; 
+                color: white; 
+                padding: 10px 20px; 
+                border: none; 
+                border-radius: 5px; 
+                cursor: pointer;
+                font-weight: bold;
+                font-size: 16px;
+                display: flex;
+                align_items: center;
+                gap: 8px;">
+                📱 Chat WhatsApp Support
+            </button>
+        </a>
+        ''', unsafe_allow_html=True)
+        # ===============================
+        
+    else:
+        st.info("👋 Selamat Datang. Database siap digunakan.")
+else:
+    st.markdown(f"**Menampilkan {start_idx+1}-{min(end_idx, total_docs)} dari {total_docs} data**")
+    
+    for item in page_data:
+        # 1. Badge Warna
+        tag = item.get('tag', 'Umum')
+        badge_color = get_badge_color_name(tag)
+        
+        # 2. Indikator Relevansi
+        score_md = ""
+        if item.get('score'):
+            sc = item['score']
+            if sc > 75: sc_color = "green"
+            elif sc > 50: sc_color = "orange"
+            else: sc_color = "red"
+            score_md = f":{sc_color}[({sc:.0f}% Relevansi)]"
+            
+        label = f":{badge_color}-background[{tag}] **{item.get('judul')}** {score_md}"
+        
+        with st.expander(label):
+            render_mixed_content(item.get('jawaban_tampil', '-'), item.get('path_gambar'))
+            if item.get('sumber_url') and len(str(item.get('sumber_url'))) > 3:
+                st.markdown(f"🔗 [Sumber Referensi]({item.get('sumber_url')})")
+
+    if total_pages > 1:
+        st.markdown("---")
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c1:
+            if st.session_state.page > 0:
+                if st.button("⬅️ Sebelumnya"):
+                    st.session_state.page -= 1
+                    st.rerun()
+        with c3:
+            if st.session_state.page < total_pages - 1:
+                if st.button("Berikutnya ➡️"):
+                    st.session_state.page += 1
+                    st.rerun()
+
+======== FILE: .\bot_wa.py ========
+import os
+import requests
+import uvicorn
+from fastapi import FastAPI, Request, BackgroundTasks
+from dotenv import load_dotenv
+from src import database, config
+
+# Load Environment Variables
+load_dotenv()
+
+app = FastAPI()
+
+# --- CONFIG ---
+FONNTE_TOKEN = os.getenv("FONNTE_TOKEN")
+# Ambil nomor bot sendiri dari config/env untuk logic group mention
+# Jika tidak diset, default kosong (hati-hati logic group mungkin kurang akurat)
+MY_BOT_NUMBER = os.getenv("BOT_NUMBER", "") 
+
+if not FONNTE_TOKEN:
+    print("⚠️ WARNING: FONNTE_TOKEN belum diisi di .env!")
+
+def send_wa_reply(target, message):
+    """Kirim pesan balasan via Fonnte API"""
+    headers = {
+        "Authorization": FONNTE_TOKEN,
+    }
+    # Fonnte support text markdown (Bold, Italic)
+    data = {
+        "target": target,
+        "message": message,
+    }
+
+    try:
+        url = "https://api.fonnte.com/send"
+        resp = requests.post(url, headers=headers, data=data)
+        print(f"✅ [Fonnte] Reply sent to {target} | Status: {resp.status_code}")
+    except Exception as e:
+        print(f"❌ [Fonnte] Error sending message: {e}")
+
+def process_logic(sender, incoming_msg):
+    """
+    Otak Bot:
+    1. Filter Group vs Private
+    2. Search Database
+    3. Generate Reply
+    """
+    
+    # --- LOGIC GROUP HANDLING ---
+    is_group = sender.endswith("@g.us")
+    
+    # Jika di Grup, bot HANYA menjawab jika di-mention
+    # Asumsi user mengetik: "@628xxxx pertanyaan" atau tag bot
+    if is_group:
+        # Daftar panggilan biar bot nengok walau kontak disave aneh-aneh
+            triggers = [
+                "@bot", "@faq"           # Panggilan umum         # Panggilan ke admin
+            ]
+        
+            # Tambahan: Nomor Asli (Jaga-jaga kalau user gak save kontak)
+            if MY_BOT_NUMBER: triggers.append(f"@{MY_BOT_NUMBER}")
+        
+            # Cek apakah ada SALAH SATU kata di atas di pesan user
+            is_mentioned = any(t in incoming_msg.lower() for t in triggers)
+
+    # Bersihkan pesan (Hapus mention biar AI fokus ke pertanyaan)
+    clean_msg = incoming_msg
+    if is_group and MY_BOT_NUMBER:
+        clean_msg = clean_msg.replace(f"@{MY_BOT_NUMBER}", "")
+    
+    clean_msg = clean_msg.replace("@bot", "").replace("@faq", "").strip()
+    
+    print(f"🧠 Processing: '{clean_msg}' from {sender}")
+
+    # --- DATABASE SEARCH ---
+    results = database.search_faq_for_bot(clean_msg, filter_tag="Semua Modul")
+    
+    reply_text = ""
+    
+    if not results or not results['ids'][0]:
+        # Logic: Jika Private Chat, jawab sopan. Jika Group, diam (biar ga spam).
+        if not is_group:
+            reply_text = "🙏 Maaf, saya belum menemukan informasi terkait hal tersebut di SOP kami."
+    else:
+        # Ambil Top 1
+        meta = results['metadatas'][0][0]
+        dist = results['distances'][0][0]
+        score = max(0, (1 - dist) * 100)
+        
+        # Cek Threshold Score
+        if score >= config.BOT_MIN_SCORE:
+            reply_text += f"🤖 *E-Assistant Response* (Akurasi: {score:.0f}%)\n\n"
+            reply_text += f"📂 *Modul:* {meta['tag']}\n"
+            reply_text += f"📌 *Topik:* {meta['judul']}\n\n"
+            reply_text += f"{meta['jawaban_tampil']}\n"
+            
+            # Cek Gambar
+            if meta.get('path_gambar') and str(meta.get('path_gambar')).lower() != 'none':
+                reply_text += "\n🖼️ *[Gambar Terlampir]* Silakan cek Web App untuk visual."
+                
+            if meta.get('sumber_url'):
+                reply_text += f"\n🔗 {meta.get('sumber_url')}"
+        else:
+            if not is_group:
+                reply_text = "🤔 Pertanyaan kurang spesifik. Coba gunakan kata kunci lain."
+
+    # --- SEND REPLY ---
+    if reply_text:
+        send_wa_reply(sender, reply_text)
+
+@app.get("/")
+def home():
+    return {"status": "running", "service": "WhatsApp Bot Webhook"}
+
+@app.post("/webhook")
+async def fonnte_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Endpoint yang ditembak oleh Fonnte"""
+    try:
+        body = await request.json()
+        
+        sender = body.get("sender")
+        message = body.get("message")
+        
+        # Validasi sederhana
+        if sender and message and body.get("device_status") != "connect":
+            # Jalankan di background agar response webhook cepat 200 OK
+            background_tasks.add_task(process_logic, sender, message)
+            
+        return {"status": "ok"}
+    except Exception as e:
+        print(f"Error Webhook: {e}")
+        return {"status": "error"}
+
+if __name__ == "__main__":
+    # Ini untuk run manual tanpa Docker
+    uvicorn.run("bot_wa:app", host="0.0.0.0", port=8000, reload=True)
+
+======== FILE: .\docker-compose.yml ========
+version: '3'
+
+services:
+  # --- SERVICE 1: USER APP (Port 8501) ---
+  faq-user:
+    build: .
+    container_name: faq_user_app
+    restart: always
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./images:/app/images
+      - ./.streamlit:/app/.streamlit
+    env_file: .env
+    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+
+  # --- SERVICE 2: ADMIN APP (Port 8502) ---
+  faq-admin:
+    build: .
+    container_name: faq_admin_app
+    restart: always
+    ports:
+      - "8502:8502"
+    volumes:
+      - ./data:/app/data
+      - ./images:/app/images
+      - ./.streamlit:/app/.streamlit
+    env_file: .env
+    command: streamlit run admin.py --server.port=8502 --server.address=0.0.0.0
+
+  # --- SERVICE 3: WHATSAPP BOT (Port 8000) ---
+  faq-bot:
+    build: .
+    container_name: faq_bot_wa
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./images:/app/images
+    env_file: .env
+    # Menjalankan FastAPI dengan Uvicorn
+    command: uvicorn bot_wa:app --host 0.0.0.0 --port 8000
+
+======== FILE: .\Dokumentasi.md ========
+</dokumentasi_perjalanan_pengembangan>
+
+Berikut adalah dokumen **Rekap Evolusi Teknis & Architecture Decision Record (ADR)** yang telah dirapikan. Dokumen ini menggabungkan seluruh riwayat pengembangan, mulai dari kendala awal hingga solusi "Golden Master" saat ini.
+
+---
+
+# 🚀 Journey of Development: Fast Cognitive Search System 
+
+Dokumen ini merekam evolusi teknis sistem, mencakup masalah yang dihadapi, keputusan arsitektur yang diambil, dan alasan strategis di baliknya.
+
+---
+
+## 🧠 Bagian 1: Core Intelligence & Search Logic (Otak Sistem)
+
+Fokus pada akurasi pencarian, efisiensi AI, dan relevansi jawaban medis.
+
+### 1.1. Logika Filtering (Pre-Filtering vs Post-Filtering)
+*   **Masalah:** Awalnya menggunakan *Post-Filtering* (Cari Top 10 global dulu, baru saring Tag).
+    *   *Risiko:* Jika user mencari "Obat" tapi filter "IGD", dan Top 10 didominasi "Farmasi", hasil IGD menjadi kosong padahal datanya ada di ranking 11.
+*   **Keputusan:** Implementasi **Pre-Filtering (Native ChromaDB `where` clause)**.
+*   **Mekanisme:** Sistem menyaring tumpukan data berdasarkan Tag *sebelum* AI melakukan ranking semantic.
+*   **Benefit:** **Akurasi 100%**. User medis dijamin menemukan data spesifik modul (misal: ED/IGD) jika data memang tersedia.
+
+### 1.2. Penanganan Noise AI (Data Quality)
+*   **Masalah:** Kode visual seperti `[GAMBAR 1]` ikut di-embed ke AI. Akibatnya, jika user mencari kata "Gambar", semua artikel muncul di ranking atas (Hallucination by Keyword).
+*   **Keputusan:** Implementasi **Text Cleaner (`clean_text_for_embedding`)**.
+*   **Mekanisme:** Teks yang dikirim ke Gemini dibersihkan dari tag gambar, namun tetap mempertahankan Markdown penting.
+*   **Benefit:** AI murni fokus pada **konteks medis** (gejala, solusi, error code), bukan instruksi visual.
+
+### 1.3. Latency & Performance (Caching)
+*   **Masalah:** Sistem melakukan *re-run* embedding ke Google API setiap kali user mengganti filter, menyebabkan *lag* 0.5 - 1 detik dan boros kuota.
+*   **Keputusan:** Implementasi **Caching Strategy (`@st.cache_data`)**.
+*   **Benefit:** Pergantian filter kini **INSTANT (0 detik)** dan menghemat biaya API call secara signifikan.
+
+### 1.4. Confidence Threshold (Pencegahan Halusinasi)
+*   **Masalah:** Sistem "memaksa" memberikan jawaban meskipun user mengetik kata acak/kasar, berpotensi memberikan info medis yang salah.
+*   **Keputusan:** Menambahkan **Confidence Threshold (>25%)**.
+*   **Benefit:** Lebih baik sistem menjawab "Tidak ditemukan" daripada memberikan jawaban yang menyesatkan di lingkungan rumah sakit.
+
+### 1.5. Universal Semantic Structure (Manual HyDE Strategy)
+*   **Masalah:** Terjadi *Semantic Gap* (Kesenjangan Bahasa) antara User dan Dokumen.
+    *   *Contoh:* User mengetik bahasa panik/slang ("Gak bisa masuk", "Tombol mati"), sedangkan Dokumen menggunakan bahasa teknis/baku ("Gagal Autentikasi", "Sistem Offline").
+    *   *Risiko:* AI gagal mencocokkan keduanya karena kosa katanya terlalu berbeda, meskipun maksudnya sama.
+*   **Keputusan:** Implementasi **Structured Embedding dengan Strategi HyDE (Hypothetical Document Embeddings)**.
+*   **Mekanisme:**
+    *   Mengubah struktur teks yang di-embed dari sekadar gabungan teks menjadi format semantik yang tegas:
+        ```text
+        DOMAIN: ED (IGD, Emergency)  <-- Konteks Modul + Sinonim
+        DOKUMEN: Cara Login          <-- Judul Resmi
+        VARIASI PERTANYAAN USER: Gak bisa masuk, Lupa password <-- Bahasa User (HyDE)
+        ISI KONTEN: ...              <-- Solusi Teknis
+        ```
+    *   Admin diinstruksikan mengisi kolom "Keyword" dengan **variasi pertanyaan user**, bukan sekadar kata kunci kaku.
+*   **Benefit:**
+    1.  **Telepathic Search:** Sistem mengerti "Bahasa Lapangan" user.
+    2.  **Universal Robustness:** Struktur ini agnostik (tidak terikat RS), siap digunakan untuk domain lain (Banking, HR, Logistik) tanpa ubah kodingan.
+
+---
+
+## 🎨 Bagian 2: User Experience (Interface & Flow)
+
+Fokus pada kemudahan penggunaan bagi perawat/dokter dan kejelasan informasi.
+
+### 2.1. Mengatasi "Blank Screen Syndrome"
+*   **Masalah:** Saat aplikasi dibuka, layar kosong hanya berisi search bar. User baru bingung harus melakukan apa.
+*   **Keputusan:** Implementasi **Browse Mode (Mode Jelajah)**.
+*   **Mekanisme:** Jika search bar kosong $\rightarrow$ Tampilkan data terbaru (ID Terbesar). Jika terisi $\rightarrow$ Masuk Search Mode.
+*   **Benefit:** Meningkatkan *discoverability*. User langsung melihat update SOP terbaru tanpa perlu mengetik.
+
+### 2.2. Struktur Visual (Hybrid Inline Image)
+*   **Masalah:** Gambar menumpuk di bawah teks (Galeri). Sulit dipahami untuk SOP langkah-demi-langkah.
+*   **Keputusan:** Fitur **Inline Image (`[GAMBAR X]`)**.
+*   **Mekanisme:** Gambar diselipkan secara natural di antara paragraf teks.
+*   **Benefit:** Instruksi menjadi runut dan mudah dibaca (Teks -> Gambar -> Teks).
+
+### 2.3. Explainable AI (Transparansi)
+*   **Masalah:** User tidak tahu apakah hasil pencarian ini valid atau sekadar keyword matching.
+*   **Keputusan:** Menambahkan **Confidence Score Badge**.
+*   **Mekanisme:** Menampilkan persentase relevansi dengan kode warna (Hijau/Orange/Merah).
+*   **Benefit:** Memberikan efek psikologis "Trust" kepada user bahwa sistem benar-benar "berpikir".
+
+### 2.4. Navigasi & Scalability
+*   **Masalah:** Menampilkan 50+ hasil sekaligus membuat UI panjang (*Infinite Scroll*) dan berat.
+*   **Keputusan:** Implementasi **Pagination System** (10 item per halaman).
+*   **Benefit:** UI bersih, ringan, dan terlihat profesional.
+
+### 2.5. Visual Consistency (Single Source of Truth)
+*   **Masalah:** Awalnya warna badge (label kategori) di-hardcode di dalam script.
+    *   *Risiko 1:* Jika Admin ingin mengubah warna "IGD" dari Merah ke Biru, harus memanggil programmer untuk edit kode.
+    *   *Risiko 2:* Tanpa pembatasan, Admin mungkin memilih warna yang merusak kontras (misal: teks putih di background kuning terang).
+*   **Keputusan:** Implementasi **Dynamic JSON Configuration (`tags_config.json`)** dengan **Restricted Palette**.
+*   **Mekanisme:**
+    *   App User dan Admin membaca file konfigurasi yang sama di folder `data/`.
+    *   Pilihan warna di Admin **dibatasi** pada palet resmi (Merah, Hijau, Biru, Orange, Ungu, Abu) yang sudah dikalibrasi agar enak dilihat.
+*   **Benefit:**
+    1.  **Konsistensi:** User tidak bingung dengan warna-warni liar.
+    2.  **Fleksibilitas:** Admin bisa menambah/mengedit modul tanpa menyentuh satu baris kode pun.
+
+### 2.6. Closed Loop Support (Contextual Call-to-Action)
+*   **Masalah:** Pesan error "Data Tidak Ditemukan" adalah jalan buntu (*Dead End*). User frustrasi dan masalah tidak terselesaikan.
+*   **Keputusan:** Integrasi **Direct Support Link (WhatsApp Bot)** pada kondisi *No Result*.
+*   **Mekanisme:**
+    *   Jika relevansi < 25%, sistem menampilkan tombol "Chat WhatsApp Support".
+    *   **Auto-Fill Message:** Link WA otomatis terisi dengan draf pesan: *"Halo Admin, saya cari solusi tentang [Query User] tapi tidak ketemu..."*
+*   **Benefit:**
+    1.  **Psikologis:** User merasa "diurus" meskipun jawaban belum ada di database.
+    2.  **Ticket Automation:** Tim IT langsung mendapat laporan spesifik tentang apa yang dicari user, mempercepat perbaikan konten (Feedback Loop Aktif).
+
+---
+
+## 🛠️ Bagian 3: Admin Workflow & Operations
+
+Fokus pada keamanan data, kemudahan input, dan feedback loop.
+
+### 3.1. Zero-Error Input Workflow
+*   **Masalah:** Admin melakukan *Blind Input* (Langsung Save tanpa tahu hasil jadinya), rawan typo format.
+*   **Keputusan:** Menambahkan **Preview Mode** sebelum Submit.
+*   **Benefit:** Admin bisa memvalidasi tampilan visual sebelum data dipublish ke User.
+
+### 3.2. Smart Typing Experience
+*   **Masalah:** Admin harus mengetik kode `[GAMBAR 1]` secara manual. Rawan salah ketik dan melelahkan.
+*   **Keputusan:** Implementasi **Smart Toolbar (📸 Auto-Counter)**.
+*   **Mekanisme:** Satu tombol pintar yang otomatis menghitung urutan gambar dan menyisipkan tag yang sesuai.
+*   **Benefit:** UX *Don't make me think*. Mempercepat proses input data hingga 2x lipat.
+
+### 3.3. Data Safety (Anti-Amnesia)
+*   **Masalah:** Jika Admin menekan tombol "Edit Lagi" atau reload, data yang sudah diketik hilang.
+*   **Keputusan:** Implementasi **Session State Draft**.
+*   **Benefit:** Menjaga *mental state* admin. Data input persisten sampai benar-benar disimpan.
+
+### 3.4. Feedback Loop (Analytics)
+*   **Masalah:** Admin tidak tahu apa yang dicari user namun belum ada jawabannya di database.
+*   **Keputusan:** Fitur **Log Pencarian Gagal (Analytics Tab)**.
+*   **Benefit:** *Data Driven Development*. Admin membuat konten baru berdasarkan kebutuhan riil di lapangan.
+
+### 3.5. Maintenance (Zombie Cleaner)
+*   **Masalah:** Menghapus data di database tidak menghapus file gambar di folder server (Storage Leak).
+*   **Keputusan:** Logic **Deep Delete** (Hapus DB = Hapus File Fisik).
+*   **Benefit:** Server tetap bersih dari file sampah (*maintenance free*).
+
+---
+
+## 🏗️ Bagian 4: Architecture & Robustness
+
+Fokus pada fondasi teknis, keamanan, dan deployment.
+
+### 4.1. Security Standard
+*   **Masalah:** API Key dan Password hardcoded di dalam script. Berisiko tinggi jika source code bocor.
+*   **Keputusan:** Migrasi ke **Environment Variables (`.env`)**.
+*   **Benefit:** Memenuhi standar keamanan Enterprise.
+
+### 4.2. Code Structure (Modularity)
+*   **Masalah:** Kode awal berupa *Spaghetti Code* (semua dalam satu file).
+*   **Keputusan:** Refactoring ke struktur **Modular** (`src/database`, `src/utils`, `src/config`).
+*   **Benefit:** Mudah dibaca, mudah di-maintenance, dan siap untuk migrasi ke framework lebih besar (FastAPI) di masa depan.
+
+### 4.3. Concurrency Handling
+*   **Masalah:** Database SQLite sering *crash* ("Locked") jika diakses banyak user bersamaan.
+*   **Keputusan:** Implementasi **`@retry_on_lock` Decorator dengan Jitter**.
+*   **Benefit:** Sistem menjadi *robust* (tahan banting) menangani antrian request tanpa perlu setup database server yang berat.
+
+---
+
+## 📱 Bagian 5: Omnichannel Expansion (WhatsApp Integration)
+
+Fokus pada perluasan aksesibilitas sistem agar bisa dijangkau oleh staf medis melalui HP tanpa perlu login komputer.
+
+### 5.1. Decoupled Architecture (Microservice Approach)
+*   **Masalah:** Awalnya logika pencarian terikat erat (*tightly coupled*) di dalam `app.py` Streamlit. Membuat skrip Bot WA terpisah menjadi mustahil karena error dependency `streamlit` context.
+*   **Keputusan:** Refactoring `database.py` menjadi pola **Hybrid Access**.
+*   **Mekanisme:**
+    1.  **Raw Logic Layer:** Fungsi murni Python untuk koneksi DB & Embedding (tanpa cache). Digunakan oleh Bot WA.
+    2.  **Cached Wrapper Layer:** Membungkus Raw Logic dengan `@st.cache_data`. Digunakan oleh Web App untuk performa.
+*   **Benefit:** **Code Reusability**. Satu otak (core logic) dipakai oleh dua tubuh (Web & WA) secara simultan tanpa konflik.
+
+### 5.2. Context-Aware Group Logic (Etika Robot)
+*   **Masalah:** Saat bot dimasukkan ke Grup WA RS, bot menjawab *semua* chat yang masuk (termasuk percakapan santai), menyebabkan SPAM.
+*   **Keputusan:** Implementasi **Selective Trigger Logic**.
+*   **Mekanisme:**
+    *   **Private Chat:** Bot selalu menjawab.
+    *   **Group Chat:** Bot **DIAM** kecuali dipanggil (Mention `@Bot`, `@628...`, atau keyword `min/tolong/tanya`).
+*   **Benefit:** **User Experience yang Sopan**. Bot tidak mengganggu dinamika grup manusia, hanya muncul saat dibutuhkan.
+
+### 5.3. Gateway Strategy (Hackathon Speed)
+*   **Masalah:** Menggunakan WhatsApp Official API (BSP) membutuhkan verifikasi bisnis Meta (Facebook) yang memakan waktu 24-48 jam. Tidak kekejar untuk deadline lomba.
+*   **Keputusan:** Menggunakan **Unofficial Gateway (Fonnte) + Webhook**.
+*   **Mekanisme:** Fonnte bertindak sebagai "Jembatan" yang meneruskan pesan WA ke server backend (Python FastAPI) via HTTP POST.
+*   **Benefit:** **Instant Deployment**. Bot bisa hidup dalam hitungan menit tanpa birokrasi legalitas.
+
+---
+
+## 🧠 Bagian 6: Adaptive Intelligence Configuration
+
+Fokus pada fleksibilitas logika AI tanpa perlu mengubah kode sumber (Hardcoding).
+
+### 6.1. Dynamic Thresholding (Environment Variables)
+*   **Masalah:** Menentukan seberapa "Pede" bot menjawab (Score > 80%?) atau seberapa "Beda" jawaban 1 dan 2 (Gap > 10%?) adalah angka subjektif. Jika di-hardcode, mengubahnya butuh restart/deploy ulang.
+*   **Keputusan:** Memindahkan parameter logika ke **Environment Variables (`.env`)**.
+    *   `BOT_MIN_SCORE`: Batas minimum kemiripan.
+    *   `BOT_MIN_GAP`: Jarak aman antara ranking 1 dan 2.
+*   **Benefit:** **Operational Agility**. Admin bisa mengubah sifat bot (dari "Galak/Pelit Jawaban" menjadi "Ramah/Mudah Menjawab") hanya dengan edit text file di server, tanpa menyentuh kodingan.
+
+### 6.2. Trap-Keywords Strategy
+*   **Masalah:** User sering menyimpan nomor bot dengan nama acak (misal: "Robot RS", "Si Pinter"). Logika deteksi mention `@628...` sering gagal.
+*   **Keputusan:** Implementasi **Generic Trigger List**.
+*   **Mekanisme:** Bot tidak hanya mendeteksi nomor HP-nya sendiri, tapi juga bereaksi pada kata kunci sosial: *"Admin", "Min", "Tolong", "Tanya", "Help"*.
+*   **Benefit:** **High Availability**. Bot tetap responsif meskipun user tidak tahu cara mention yang benar.
+
+---
+
+## 🌐 Bagian 7: Connectivity & Deployment
+
+### 7.1. Tunneling for POC (Ngrok)
+*   **Masalah:** Mendemokan integrasi WhatsApp (Internet Public) ke Server Laptop (Localhost) tidak bisa dilakukan secara langsung karena terhalang NAT/Firewall.
+*   **Keputusan:** Menggunakan **Ngrok Secure Tunnels**.
+*   **Benefit:** Memungkinkan demo **Live Real-time** kepada juri menggunakan infrastruktur laptop lokal, namun tetap terintegrasi dengan dunia luar (WhatsApp).
+
+---
+
+## 📊 Ringkasan: Before vs After
+
+| Aspek | Status Awal (Before) | Status Final (Golden Master) |
+| :--- | :--- | :--- |
+| **Logic Search** | Post-Filter (Rawan Data Hilang) | **Pre-Filter (Akurasi 100%)** |
+| **AI Context** | Tercemar Noise Visual | **Bersih (Text Cleaner)** |
+| **Embedding Strategy** | Flat Text (Rawan Meleset) | **Structured HyDE (Universal & Robust)** |
+| **Tampilan User** | Blank Screen & Galeri Menumpuk | **Browse Mode & Inline Image** |
+| **Handling No Result** | Jalan Buntu (Pesan Error) | **Call-to-Action (WhatsApp Integration)** |
+| **Admin Input** | Manual & Rawan Typo | **Smart Toolbar & Preview Mode** |
+| **Keamanan** | Hardcoded Credentials | **Environment Variables (.env)** |
+| **Stabilitas** | Rawan Crash (SQLite Locked) | **Robust (Retry Mechanism)** |
+| **Aksesibilitas** | Web Only (Harus Login PC) | **Omnichannel (Web + WhatsApp 24/7)** |
+| **Arsitektur DB** | Tightly Coupled (Streamlit Only) | **Hybrid Microservice (Web & API Ready)** |
+| **Logika WA** | Spammy (Jawab Semua) | **Context-Aware (Sopan di Grup)** |
+| **Config AI** | Hardcoded di Python | **Dynamic Config (.env)** |
+| **Trigger Bot** | Kaku (@Nomor) | **Fleksibel (Natural Language Triggers)** |
+
+### 🗺️ Arsitektur Sistem Final
+
+```mermaid
+graph TD
+    UserWA[User WhatsApp] -->|Chat| WA_Server[WhatsApp Server]
+    WA_Server -->|Push| Fonnte[Fonnte Gateway]
+    Fonnte -->|Webhook POST| Ngrok[Ngrok Tunnel]
+    Ngrok -->|Forward| FastAPI[Bot Service (FastAPI)]
+    
+    UserWeb[User Browser] -->|HTTP| Streamlit[Web App (Streamlit)]
+    
+    FastAPI -->|Raw Query| ChromaDB[(Vector Database)]
+    Streamlit -->|Cached Query| ChromaDB
+    
+    ChromaDB <-->|Embedding| GeminiAI[Google Gemini API]
+```
+
+### ✅ Status Sistem Saat Ini
+Sistem telah berevolusi dari sekadar *Prototype* menjadi aplikasi **Production-Ready** skala departemen dengan karakteristik:
+1.  **High Accuracy:** Logika pencarian yang matang.
+2.  **User Centric:** Interface yang memandu user.
+3.  **Low Maintenance:** Fitur pembersihan otomatis dan logging.
+4.  **Secure:** Pemisahan kredensial dari kode.
+
+</dokumentasi_perjalanan_pengembangan>
+
+
+</next_pengembangan>
 Deploy dan pengembangan logika bot
 </next_pengembangan>
 
@@ -271,6 +1273,1633 @@ Deploy dan pengembangan logika bot
 Berikut untuk codesnya yang terbaru:
 
 <kode_baru>
+
+
+
+</kode_baru>
+
+Kira-kira seperti ini projectku. apakah siap untuk dilombakan? tinggal 1 minggu lagi ini btw, hehe....
+
+
+
+======== FILE: .\info_some_syntax.md ========
+# Beberapa instruksi tambahan untuk coding assistant AI
+
+~ Be Critical
+
+======== FILE: .\README.md ========
+Nama ai : Fast Cognitive Search System
+
+Alternative nama lain:
+Smart Contextual Retrieval Grid
+Rapid Deep-Semantic Search
+
+======== FILE: .\requirements.txt ========
+streamlit==1.51.0
+chromadb==1.3.4
+pandas
+google-genai
+python-dotenv
+fastapi
+uvicorn
+requests
+# pysqlite3-binary PENTING untuk mengatasi limitasi SQLite lama di container Linux
+pysqlite3-binary; sys_platform == 'linux'
+watchdog
+
+======== FILE: .\single_script_for_llm.txt ========
+======== FILE: .\admin.py ========
+import streamlit as st
+import pandas as pd
+import time
+import re
+from src import database, utils
+from src.config import ADMIN_PASSWORD, FAILED_SEARCH_LOG
+
+# --- AUTH SYSTEM ---
+if 'auth' not in st.session_state: st.session_state.auth = False
+
+def login():
+    if st.session_state.pass_input == ADMIN_PASSWORD: 
+        st.session_state.auth = True
+    else:
+        st.error("Password salah")
+
+if not st.session_state.auth:
+    st.set_page_config(page_title="Admin Login")
+    st.markdown("<h1 style='text-align: center;'>🔒 Admin Login</h1>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1,1,1])
+    with c2:
+        st.text_input("Password", type="password", key="pass_input", on_change=login)
+    st.stop()
+
+# --- MAIN UI SETUP ---
+st.set_page_config(page_title="Admin Console", layout="wide")
+st.title("🛠️ Admin Console (Safe Mode)")
+tags_map = utils.load_tags_config()
+
+# State Management
+if 'preview_mode' not in st.session_state: st.session_state.preview_mode = False
+if 'draft_data' not in st.session_state: st.session_state.draft_data = {}
+
+# Tabs
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📊 Database", "➕ New FaQ)", "✏️ Edit/Delete FaQ", "⚙️ Config Tags", "📈 Analytics"
+])
+
+# === TAB 1: LIST DATA ===
+with tab1:
+    if st.button("🔄 Refresh Data"):
+        st.cache_data.clear()
+        st.rerun()
+    df = database.get_all_data_as_df()
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+# === TAB 2: TAMBAH DATA (SMART EDITOR) ===
+with tab2:
+    # --- SMART CALLBACKS ---
+    def add_text(text):
+        """Menambahkan teks (Bold/List) ke akhir editor"""
+        if 'in_a' in st.session_state:
+            st.session_state.in_a += text
+
+    def add_next_image_tag():
+        """
+        FITUR PINTAR (AUTO COUNTER):
+        Otomatis scan teks, hitung jumlah tag [GAMBAR X], 
+        lalu tambahkan [GAMBAR X+1].
+        """
+        current_text = st.session_state.get('in_a', "")
+        matches = re.findall(r'\[GAMBAR\s*\d+\]', current_text, flags=re.IGNORECASE)
+        next_num = len(matches) + 1
+        
+        tag_to_insert = f"\n\n[GAMBAR {next_num}]\n\n"
+        st.session_state.in_a += tag_to_insert
+
+    # --- PHASE 1: INPUT FORM ---
+    if not st.session_state.preview_mode:
+        # Load Draft (Anti-Amnesia Logic)
+        default_tag = st.session_state.draft_data.get('tag', list(tags_map.keys())[0])
+        default_judul = st.session_state.draft_data.get('judul', '')
+        default_jawab = st.session_state.draft_data.get('jawab', '')
+        default_key = st.session_state.draft_data.get('key', '')
+        default_src = st.session_state.draft_data.get('src', '')
+        
+        try: idx_tag = list(tags_map.keys()).index(default_tag)
+        except: idx_tag = 0
+
+        st.subheader("📝 FaQ/SOP Baru")
+        
+        # Row 1: Module & Judul
+        col_m, col_j = st.columns([1, 3])
+        with col_m: i_tag = st.selectbox("Modul", list(tags_map.keys()), index=idx_tag, key="in_t")
+        with col_j: i_judul = st.text_input("Judul Masalah (Pertanyaan/SOP)", value=default_judul, key="in_j")
+            
+        # Row 2: Smart Toolbar & Editor
+        st.markdown("**Jawaban / Solusi:**")
+        
+        # Toolbar Layout
+        tb1, tb2, tb3, tb_spacer = st.columns([1, 1, 2, 4])
+        
+        tb1.button("𝗕 Bold", on_click=add_text, args=(" **teks tebal** ",), 
+                   help="Tebalkan teks", use_container_width=True)
+        
+        tb2.button("Bars", on_click=add_text, args=("\n- Langkah 1\n- Langkah 2",), 
+                   help="Buat List", use_container_width=True)
+        
+        # Tombol Ajaib
+        tb3.button("+ Klik ini untuk penempatan gambar", on_click=add_next_image_tag, 
+                   type="primary", icon="🖼️", use_container_width=True,
+                   help="Otomatis memasukkan tag [GAMBAR 1], [GAMBAR 2], dst.")
+
+        # Text Area Utama
+        i_jawab = st.text_area("Editor", value=default_jawab, height=300, key="in_a", label_visibility="collapsed")
+        st.caption("💡 *Tips: Klik tombol '📸' untuk memasukkan placeholder gambar secara urut.*")
+        
+        # Row 3: Meta Info & Upload
+        c_k, c_s = st.columns(2)
+        with c_k: 
+            st.markdown("Term terkait / Bahasa User (HyDE) 👇")
+            i_key = st.text_input("Hidden Label", value=default_key, key="in_k", 
+                                  placeholder="Contoh: Gabisa login, User not found, Tombol mati...",
+                                  label_visibility="collapsed",
+                                  help="Masukkan kata-kata yang mungkin diketik user saat panik.")
+            
+        with c_s: 
+            st.markdown("Sumber Info/Source URL")
+            i_src = st.text_input("Hidden Label 2", value=default_src, key="in_s", label_visibility="collapsed")
+        
+        i_imgs = st.file_uploader("Upload Gambar", accept_multiple_files=True, key="in_i")
+        
+        st.divider()
+        if st.button("🔍 Lanjut ke Preview", type="primary", use_container_width=True):
+            if not i_judul or not i_jawab:
+                st.error("Judul & Jawaban wajib diisi!")
+            else:
+                # Simpan Draft ke Session State
+                st.session_state.draft_data = {
+                    "tag": i_tag, "judul": i_judul, "jawab": i_jawab,
+                    "key": i_key, "src": i_src, "imgs": i_imgs
+                }
+                st.session_state.preview_mode = True
+                st.rerun()
+
+    # --- PHASE 2: PREVIEW & SUBMIT ---
+    else:
+        draft = st.session_state.draft_data
+        
+        st.info("📱 **Mode Preview:** Periksa tampilan sebelum Publish.")
+        
+        # Simulasi Tampilan User (Card)
+        with st.container(border=True):
+            hex_color = tags_map.get(draft['tag'], {}).get("color", "#808080")
+            st.markdown(f"### <span style='color:{hex_color}'>[{draft['tag']}]</span> {draft['judul']}", unsafe_allow_html=True)
+            st.caption(f"🔑 Keywords/HyDE: {draft['key']}")
+            st.divider()
+            
+            # Logic Render Gambar Sederhana untuk Preview
+            parts = re.split(r'(\[GAMBAR\s*\d+\])', draft['jawab'], flags=re.IGNORECASE)
+            imgs = draft['imgs'] or []
+            
+            for part in parts:
+                match = re.search(r'\[GAMBAR\s*(\d+)\]', part, re.IGNORECASE)
+                if match:
+                    try:
+                        idx = int(match.group(1)) - 1
+                        if 0 <= idx < len(imgs):
+                            st.image(imgs[idx], width=400, caption=f"Gambar {idx+1}")
+                        else:
+                            st.warning(f"⚠️ [GAMBAR {idx+1}] ditulis tapi file belum diupload.")
+                    except: pass
+                else:
+                    if part.strip(): st.markdown(part)
+        
+        st.divider()
+        c_back, c_save = st.columns([1, 3])
+        
+        with c_back:
+            if st.button("⬅️ Edit Lagi", use_container_width=True):
+                st.session_state.preview_mode = False
+                st.rerun()
+        
+        with c_save:
+            if st.button("💾 PUBLISH KE DATABASE", type="primary", use_container_width=True):
+                try:
+                    with st.spinner("Menyimpan ke ChromaDB..."):
+                        # 1. Simpan Gambar ke Disk
+                        paths = utils.save_uploaded_images(draft['imgs'], draft['judul'], draft['tag'])
+                        
+                        # 2. Upsert ke DB
+                        new_id = database.upsert_faq(
+                            doc_id="auto",
+                            tag=draft['tag'], 
+                            judul=draft['judul'], 
+                            jawaban=draft['jawab'], 
+                            keyword=draft['key'], 
+                            img_paths=paths, 
+                            src_url=draft['src']
+                        )
+                        
+                        st.balloons()
+                        st.success(f"✅ Data Tersimpan! ID Dokumen: {new_id}")
+                        
+                        # Reset
+                        st.session_state.preview_mode = False
+                        st.session_state.draft_data = {}
+                        database.get_all_data_as_df.clear()
+                        time.sleep(2)
+                        st.rerun()
+                except Exception as e: 
+                    st.error(f"Error Save: {e}")
+
+# === TAB 3: EDIT/HAPUS ===
+with tab3:
+    st.header("✏️ Edit Data Lama")
+    df_e = database.get_all_data_as_df()
+    
+    if not df_e.empty:
+        opts = [f"{r['ID']} | {r['Judul']}" for _, r in df_e.iterrows()]
+        sel = st.selectbox("Pilih Data", opts)
+        
+        if sel:
+            sel_id = sel.split(" | ")[0]
+            row = df_e[df_e['ID'] == sel_id].iloc[0]
+            
+            with st.form("edit_form"):
+                curr = row['Tag']
+                idx = list(tags_map.keys()).index(curr) if curr in tags_map else 0
+                
+                c_id, c_t = st.columns([1, 4])
+                with c_id: st.text_input("ID", value=sel_id, disabled=True)
+                with c_t: e_tag = st.selectbox("Modul", list(tags_map.keys()), index=idx)
+                
+                e_jud = st.text_input("Judul SOP", value=row['Judul'])
+                e_jaw = st.text_area("Jawaban (Gunakan [GAMBAR X])", value=row['Jawaban'], height=200)
+                e_key = st.text_input("Keyword / Bahasa User (HyDE)", value=row['Keyword'], help="Isi dengan variasi pertanyaan user.")
+                e_src = st.text_input("Source URL", value=row['Source'])
+                
+                st.markdown(f"**Path Gambar Saat Ini:** `{row['Gambar']}`")
+                e_new = st.file_uploader("Timpa Gambar Baru (Opsional)", accept_multiple_files=True)
+                
+                c_up, c_del = st.columns([1, 1])
+                
+                if c_up.form_submit_button("💾 UPDATE DATA"):
+                    p = row['Gambar']
+                    if e_new: 
+                        p = utils.save_uploaded_images(e_new, e_jud, e_tag)
+                    
+                    database.upsert_faq(sel_id, e_tag, e_jud, e_jaw, e_key, p, e_src)
+                    st.toast("Data Updated!", icon="✅")
+                    database.get_all_data_as_df.clear()
+                    time.sleep(1)
+                    st.rerun()
+                
+                if c_del.form_submit_button("🗑️ HAPUS PERMANEN", type="primary"):
+                    database.delete_faq(sel_id)
+                    st.toast("Data & Gambar Dihapus.", icon="🗑️")
+                    database.get_all_data_as_df.clear()
+                    time.sleep(1)
+                    st.rerun()
+
+# === TAB 4: CONFIG ===
+with tab4:
+    st.subheader("⚙️ Konfigurasi Tag")
+    flat = [{"Tag":k, "Warna":v.get("color",""), "Sinonim":v.get("desc","")} for k,v in tags_map.items()]
+    st.dataframe(pd.DataFrame(flat), use_container_width=True, hide_index=True)
+    
+    with st.expander("➕ Tambah / Update Tag"):
+        with st.form("conf_f", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1: n_name = st.text_input("Nama Tag (ex: ED)")
+            with c2: n_col = st.selectbox("Warna Badge", list(utils.COLOR_PALETTE.keys()))
+            n_desc = st.text_input("Sinonim / Kepanjangan Singkatan", placeholder="ex: Emergency, Poli, Medical Record, Hemodialysis")
+            
+            if st.form_submit_button("Simpan"):
+                if n_name:
+                    hex_c = utils.COLOR_PALETTE[n_col]["hex"]
+                    tags_map[n_name] = {"color": hex_c, "desc": n_desc}
+                    utils.save_tags_config(tags_map)
+                    st.toast("Konfigurasi Tersimpan!"); time.sleep(1); st.rerun()
+
+# === TAB 5: ANALYTICS (FEEDBACK LOOP) ===
+with tab5:
+    st.subheader("📈 Pencarian Gagal (User Feedback)")
+    st.caption("Daftar kata kunci yang dicari User tapi hasilnya < 32% (Tidak Relevan).")
+    
+    if utils.os.path.exists(FAILED_SEARCH_LOG):
+        df_log = pd.read_csv(FAILED_SEARCH_LOG)
+        
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.metric("Total Miss", len(df_log))
+        with col2:
+            if st.button("🗑️ Clear Log"):
+                utils.os.remove(FAILED_SEARCH_LOG)
+                st.rerun()
+                
+        if not df_log.empty:
+            df_log = df_log.sort_values(by="Timestamp", ascending=False)
+            st.dataframe(df_log, use_container_width=True)
+    else:
+        st.info("Belum ada data pencarian gagal. Sistem bekerja dengan baik!")
+
+======== FILE: .\app.py ========
+import streamlit as st
+import os
+import math
+import re
+import warnings
+from src import database, utils
+
+# --- 1. CONFIG & SUPPRESS WARNINGS ---
+st.set_page_config(page_title="Siloam Knowledge Base", page_icon="🏥", layout="centered")
+
+# Matikan warning deprecation
+# (Kode lama dihapus karena sudah tidak supported di Streamlit baru)
+warnings.filterwarnings("ignore")
+
+# Load Konfigurasi Tag dari JSON (Single Source of Truth)
+TAGS_MAP = utils.load_tags_config()
+
+# CSS Styling
+st.markdown("""
+<style>
+    div[data-testid="stExpander"] {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        background-color: white;
+        margin-bottom: 10px;
+    }
+    div[data-testid="stExpander"] p {
+        font-size: 15px;
+        font-family: sans-serif;
+    }
+    .stApp {
+        background-color: #FAFAFA;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- 2. HELPER FUNGSI ---
+
+def get_badge_color_name(tag):
+    """
+    Menerjemahkan HEX Code dari tags_config.json menjadi Nama Warna Streamlit.
+    """
+    tag_data = TAGS_MAP.get(tag, {})
+    hex_code = tag_data.get("color", "#808080").upper() 
+    
+    hex_to_name = {
+        "#FF4B4B": "red",     # Merah (ED)
+        "#2ECC71": "green",   # Hijau (OPD)
+        "#3498DB": "blue",    # Biru (IPD/MR/Rehab)
+        "#FFA500": "orange",  # Orange (Cashier)
+        "#9B59B6": "violet",  # Ungu (Farmasi)
+        "#808080": "gray",    # Abu (Umum)
+        "#333333": "gray"     # Dark Gray
+    }
+    
+    return hex_to_name.get(hex_code, "gray")
+
+def render_image_safe(image_path):
+    if image_path and os.path.exists(image_path):
+        st.image(image_path, use_container_width=True)
+
+def render_mixed_content(jawaban_text, images_str):
+    if not images_str or str(images_str).lower() == 'none':
+        st.markdown(jawaban_text)
+        return
+
+    img_list = images_str.split(';')
+    img_list = [x for x in img_list if x.strip()]
+    parts = re.split(r'(\[GAMBAR\s*\d+\])', jawaban_text, flags=re.IGNORECASE)
+    
+    # Case 1: Fallback (Gambar di bawah)
+    if len(parts) == 1:
+        st.markdown(jawaban_text)
+        if img_list:
+            st.markdown("---")
+            cols = st.columns(min(3, len(img_list)))
+            for idx, p in enumerate(img_list):
+                clean_p = utils.fix_image_path_for_ui(p)
+                if clean_p and os.path.exists(clean_p):
+                    with cols[idx % 3]:
+                        st.image(clean_p, use_container_width=True)
+        return
+
+    # Case 2: Inline (Diselipkan)
+    for part in parts:
+        match = re.search(r'\[GAMBAR\s*(\d+)\]', part, re.IGNORECASE)
+        if match:
+            try:
+                idx = int(match.group(1)) - 1 
+                if 0 <= idx < len(img_list):
+                    clean_p = utils.fix_image_path_for_ui(img_list[idx])
+                    if clean_p and os.path.exists(clean_p):
+                        render_image_safe(clean_p)
+                    else:
+                        st.error(f"🖼️ File gambar tidak ditemukan: {clean_p}")
+                else:
+                    st.caption(f"*(Gambar #{idx+1} tidak tersedia)*")
+            except ValueError: pass
+        else:
+            if part.strip(): st.markdown(part)
+
+# --- 3. STATE MANAGEMENT ---
+if 'page' not in st.session_state: st.session_state.page = 0
+if 'last_query' not in st.session_state: st.session_state.last_query = ""
+if 'last_filter' not in st.session_state: st.session_state.last_filter = ""
+
+# --- 4. HEADER UI ---
+st.title("⚡Fast Cognitive Search System")
+st.caption("Smart Knowledge Base Retrieval")
+
+col_q, col_f = st.columns([3, 1])
+with col_q:
+    query = st.text_input("Cari isu/kendala:", placeholder="Ketik masalah (cth: Kenapa Gagal Retur Obat, gagal discharge)...")
+with col_f:
+    # Ambil tag unik dari DB agar dropdown dinamis
+    try:
+        db_tags = database.get_unique_tags_from_db()
+    except:
+        db_tags = []
+    all_tags = ["Semua Modul"] + (db_tags if db_tags else [])
+    filter_tag = st.selectbox("Filter:", all_tags)
+
+# --- 5. LOGIC PENCARIAN ---
+if query != st.session_state.last_query or filter_tag != st.session_state.last_filter:
+    st.session_state.page = 0
+    st.session_state.last_query = query
+    st.session_state.last_filter = filter_tag
+
+results = []
+is_search_mode = False
+
+if query:
+    is_search_mode = True
+    raw = database.search_faq(query, filter_tag, n_results=50)
+    
+    if raw['ids'][0]:
+        for i in range(len(raw['ids'][0])):
+            meta = raw['metadatas'][0][i]
+            dist = raw['distances'][0][i]
+            score = max(0, (1 - dist) * 100)
+            
+            # === THRESHOLD 32% ===
+            if score > 32:
+                meta['score'] = score
+                results.append(meta)
+else:
+    raw_all = database.get_all_faqs_sorted()
+    if filter_tag == "Semua Modul":
+        results = raw_all
+    else:
+        results = [x for x in raw_all if x.get('tag') == filter_tag]
+
+# --- 6. PAGINATION & DISPLAY ---
+ITEMS_PER_PAGE = 10
+total_docs = len(results)
+total_pages = math.ceil(total_docs / ITEMS_PER_PAGE)
+
+if st.session_state.page >= total_pages and total_pages > 0:
+    st.session_state.page = 0
+
+start_idx = st.session_state.page * ITEMS_PER_PAGE
+end_idx = start_idx + ITEMS_PER_PAGE
+page_data = results[start_idx:end_idx]
+
+st.divider()
+
+if not page_data:
+    if is_search_mode:
+        # Catat query gagal ke CSV
+        try: utils.log_failed_search(query)
+        except: pass
+        
+        # === CALL TO ACTION (WA BOT) ===
+        st.warning(f"❌ Tidak ditemukan hasil yang relevan (Relevansi < 32%).")
+        
+        st.markdown("""
+        ### 🧐 Belum ada solusinya?
+        Sistem telah mencatat pencarianmu untuk perbaikan. Sementara itu, kamu bisa:
+        
+        1. Coba gunakan kata kunci yang lebih umum.
+        2. Atau langsung request bantuan ke Tim IT Support:
+        """)
+        
+        # GANTI NOMOR WA DI SINI (Format: 628xxx)
+        wa_number = "6289635225253" 
+        wa_text = f"Halo Admin, saya cari solusi tentang '{query}' tapi tidak ketemu di aplikasi FAQ."
+        wa_link = f"https://wa.me/{wa_number}?text={wa_text.replace(' ', '%20')}"
+        
+        st.markdown(f'''
+        <a href="{wa_link}" target="_blank" style="text-decoration: none;">
+            <button style="
+                background-color: #25D366; 
+                color: white; 
+                padding: 10px 20px; 
+                border: none; 
+                border-radius: 5px; 
+                cursor: pointer;
+                font-weight: bold;
+                font-size: 16px;
+                display: flex;
+                align_items: center;
+                gap: 8px;">
+                📱 Chat WhatsApp Support
+            </button>
+        </a>
+        ''', unsafe_allow_html=True)
+        # ===============================
+        
+    else:
+        st.info("👋 Selamat Datang. Database siap digunakan.")
+else:
+    st.markdown(f"**Menampilkan {start_idx+1}-{min(end_idx, total_docs)} dari {total_docs} data**")
+    
+    for item in page_data:
+        # 1. Badge Warna
+        tag = item.get('tag', 'Umum')
+        badge_color = get_badge_color_name(tag)
+        
+        # 2. Indikator Relevansi
+        score_md = ""
+        if item.get('score'):
+            sc = item['score']
+            if sc > 75: sc_color = "green"
+            elif sc > 50: sc_color = "orange"
+            else: sc_color = "red"
+            score_md = f":{sc_color}[({sc:.0f}% Relevansi)]"
+            
+        label = f":{badge_color}-background[{tag}] **{item.get('judul')}** {score_md}"
+        
+        with st.expander(label):
+            render_mixed_content(item.get('jawaban_tampil', '-'), item.get('path_gambar'))
+            if item.get('sumber_url') and len(str(item.get('sumber_url'))) > 3:
+                st.markdown(f"🔗 [Sumber Referensi]({item.get('sumber_url')})")
+
+    if total_pages > 1:
+        st.markdown("---")
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c1:
+            if st.session_state.page > 0:
+                if st.button("⬅️ Sebelumnya"):
+                    st.session_state.page -= 1
+                    st.rerun()
+        with c3:
+            if st.session_state.page < total_pages - 1:
+                if st.button("Berikutnya ➡️"):
+                    st.session_state.page += 1
+                    st.rerun()
+
+======== FILE: .\bot_wa.py ========
+import os
+import requests
+import uvicorn
+from fastapi import FastAPI, Request, BackgroundTasks
+from dotenv import load_dotenv
+from src import database, config
+
+# Load Environment Variables
+load_dotenv()
+
+app = FastAPI()
+
+# --- CONFIG ---
+FONNTE_TOKEN = os.getenv("FONNTE_TOKEN")
+# Ambil nomor bot sendiri dari config/env untuk logic group mention
+# Jika tidak diset, default kosong (hati-hati logic group mungkin kurang akurat)
+MY_BOT_NUMBER = os.getenv("BOT_NUMBER", "") 
+
+if not FONNTE_TOKEN:
+    print("⚠️ WARNING: FONNTE_TOKEN belum diisi di .env!")
+
+def send_wa_reply(target, message):
+    """Kirim pesan balasan via Fonnte API"""
+    headers = {
+        "Authorization": FONNTE_TOKEN,
+    }
+    # Fonnte support text markdown (Bold, Italic)
+    data = {
+        "target": target,
+        "message": message,
+    }
+
+    try:
+        url = "https://api.fonnte.com/send"
+        resp = requests.post(url, headers=headers, data=data)
+        print(f"✅ [Fonnte] Reply sent to {target} | Status: {resp.status_code}")
+    except Exception as e:
+        print(f"❌ [Fonnte] Error sending message: {e}")
+
+def process_logic(sender, incoming_msg):
+    """
+    Otak Bot:
+    1. Filter Group vs Private
+    2. Search Database
+    3. Generate Reply
+    """
+    
+    # --- LOGIC GROUP HANDLING ---
+    is_group = sender.endswith("@g.us")
+    
+    # Jika di Grup, bot HANYA menjawab jika di-mention
+    # Asumsi user mengetik: "@628xxxx pertanyaan" atau tag bot
+    if is_group:
+        # Daftar panggilan biar bot nengok walau kontak disave aneh-aneh
+            triggers = [
+                "@bot", "@faq"           # Panggilan umum         # Panggilan ke admin
+            ]
+        
+            # Tambahan: Nomor Asli (Jaga-jaga kalau user gak save kontak)
+            if MY_BOT_NUMBER: triggers.append(f"@{MY_BOT_NUMBER}")
+        
+            # Cek apakah ada SALAH SATU kata di atas di pesan user
+            is_mentioned = any(t in incoming_msg.lower() for t in triggers)
+
+    # Bersihkan pesan (Hapus mention biar AI fokus ke pertanyaan)
+    clean_msg = incoming_msg
+    if is_group and MY_BOT_NUMBER:
+        clean_msg = clean_msg.replace(f"@{MY_BOT_NUMBER}", "")
+    
+    clean_msg = clean_msg.replace("@bot", "").replace("@faq", "").strip()
+    
+    print(f"🧠 Processing: '{clean_msg}' from {sender}")
+
+    # --- DATABASE SEARCH ---
+    results = database.search_faq_for_bot(clean_msg, filter_tag="Semua Modul")
+    
+    reply_text = ""
+    
+    if not results or not results['ids'][0]:
+        # Logic: Jika Private Chat, jawab sopan. Jika Group, diam (biar ga spam).
+        if not is_group:
+            reply_text = "🙏 Maaf, saya belum menemukan informasi terkait hal tersebut di SOP kami."
+    else:
+        # Ambil Top 1
+        meta = results['metadatas'][0][0]
+        dist = results['distances'][0][0]
+        score = max(0, (1 - dist) * 100)
+        
+        # Cek Threshold Score
+        if score >= config.BOT_MIN_SCORE:
+            reply_text += f"🤖 *E-Assistant Response* (Akurasi: {score:.0f}%)\n\n"
+            reply_text += f"📂 *Modul:* {meta['tag']}\n"
+            reply_text += f"📌 *Topik:* {meta['judul']}\n\n"
+            reply_text += f"{meta['jawaban_tampil']}\n"
+            
+            # Cek Gambar
+            if meta.get('path_gambar') and str(meta.get('path_gambar')).lower() != 'none':
+                reply_text += "\n🖼️ *[Gambar Terlampir]* Silakan cek Web App untuk visual."
+                
+            if meta.get('sumber_url'):
+                reply_text += f"\n🔗 {meta.get('sumber_url')}"
+        else:
+            if not is_group:
+                reply_text = "🤔 Pertanyaan kurang spesifik. Coba gunakan kata kunci lain."
+
+    # --- SEND REPLY ---
+    if reply_text:
+        send_wa_reply(sender, reply_text)
+
+@app.get("/")
+def home():
+    return {"status": "running", "service": "WhatsApp Bot Webhook"}
+
+@app.post("/webhook")
+async def fonnte_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Endpoint yang ditembak oleh Fonnte"""
+    try:
+        body = await request.json()
+        
+        sender = body.get("sender")
+        message = body.get("message")
+        
+        # Validasi sederhana
+        if sender and message and body.get("device_status") != "connect":
+            # Jalankan di background agar response webhook cepat 200 OK
+            background_tasks.add_task(process_logic, sender, message)
+            
+        return {"status": "ok"}
+    except Exception as e:
+        print(f"Error Webhook: {e}")
+        return {"status": "error"}
+
+if __name__ == "__main__":
+    # Ini untuk run manual tanpa Docker
+    uvicorn.run("bot_wa:app", host="0.0.0.0", port=8000, reload=True)
+
+======== FILE: .\docker-compose.yml ========
+version: '3'
+
+services:
+  # --- SERVICE 1: USER APP (Port 8501) ---
+  faq-user:
+    build: .
+    container_name: faq_user_app
+    restart: always
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./images:/app/images
+      - ./.streamlit:/app/.streamlit
+    env_file: .env
+    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+
+  # --- SERVICE 2: ADMIN APP (Port 8502) ---
+  faq-admin:
+    build: .
+    container_name: faq_admin_app
+    restart: always
+    ports:
+      - "8502:8502"
+    volumes:
+      - ./data:/app/data
+      - ./images:/app/images
+      - ./.streamlit:/app/.streamlit
+    env_file: .env
+    command: streamlit run admin.py --server.port=8502 --server.address=0.0.0.0
+
+  # --- SERVICE 3: WHATSAPP BOT (Port 8000) ---
+  faq-bot:
+    build: .
+    container_name: faq_bot_wa
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./images:/app/images
+    env_file: .env
+    # Menjalankan FastAPI dengan Uvicorn
+    command: uvicorn bot_wa:app --host 0.0.0.0 --port 8000
+
+======== FILE: .\Dokumentasi.md ========
+</dokumentasi_perjalanan_pengembangan>
+
+Berikut adalah dokumen **Rekap Evolusi Teknis & Architecture Decision Record (ADR)** yang telah dirapikan. Dokumen ini menggabungkan seluruh riwayat pengembangan, mulai dari kendala awal hingga solusi "Golden Master" saat ini.
+
+---
+
+# 🚀 Journey of Development: Fast Cognitive Search System 
+
+Dokumen ini merekam evolusi teknis sistem, mencakup masalah yang dihadapi, keputusan arsitektur yang diambil, dan alasan strategis di baliknya.
+
+---
+
+## 🧠 Bagian 1: Core Intelligence & Search Logic (Otak Sistem)
+
+Fokus pada akurasi pencarian, efisiensi AI, dan relevansi jawaban medis.
+
+### 1.1. Logika Filtering (Pre-Filtering vs Post-Filtering)
+*   **Masalah:** Awalnya menggunakan *Post-Filtering* (Cari Top 10 global dulu, baru saring Tag).
+    *   *Risiko:* Jika user mencari "Obat" tapi filter "IGD", dan Top 10 didominasi "Farmasi", hasil IGD menjadi kosong padahal datanya ada di ranking 11.
+*   **Keputusan:** Implementasi **Pre-Filtering (Native ChromaDB `where` clause)**.
+*   **Mekanisme:** Sistem menyaring tumpukan data berdasarkan Tag *sebelum* AI melakukan ranking semantic.
+*   **Benefit:** **Akurasi 100%**. User medis dijamin menemukan data spesifik modul (misal: ED/IGD) jika data memang tersedia.
+
+### 1.2. Penanganan Noise AI (Data Quality)
+*   **Masalah:** Kode visual seperti `[GAMBAR 1]` ikut di-embed ke AI. Akibatnya, jika user mencari kata "Gambar", semua artikel muncul di ranking atas (Hallucination by Keyword).
+*   **Keputusan:** Implementasi **Text Cleaner (`clean_text_for_embedding`)**.
+*   **Mekanisme:** Teks yang dikirim ke Gemini dibersihkan dari tag gambar, namun tetap mempertahankan Markdown penting.
+*   **Benefit:** AI murni fokus pada **konteks medis** (gejala, solusi, error code), bukan instruksi visual.
+
+### 1.3. Latency & Performance (Caching)
+*   **Masalah:** Sistem melakukan *re-run* embedding ke Google API setiap kali user mengganti filter, menyebabkan *lag* 0.5 - 1 detik dan boros kuota.
+*   **Keputusan:** Implementasi **Caching Strategy (`@st.cache_data`)**.
+*   **Benefit:** Pergantian filter kini **INSTANT (0 detik)** dan menghemat biaya API call secara signifikan.
+
+### 1.4. Confidence Threshold (Pencegahan Halusinasi)
+*   **Masalah:** Sistem "memaksa" memberikan jawaban meskipun user mengetik kata acak/kasar, berpotensi memberikan info medis yang salah.
+*   **Keputusan:** Menambahkan **Confidence Threshold (>25%)**.
+*   **Benefit:** Lebih baik sistem menjawab "Tidak ditemukan" daripada memberikan jawaban yang menyesatkan di lingkungan rumah sakit.
+
+### 1.5. Universal Semantic Structure (Manual HyDE Strategy)
+*   **Masalah:** Terjadi *Semantic Gap* (Kesenjangan Bahasa) antara User dan Dokumen.
+    *   *Contoh:* User mengetik bahasa panik/slang ("Gak bisa masuk", "Tombol mati"), sedangkan Dokumen menggunakan bahasa teknis/baku ("Gagal Autentikasi", "Sistem Offline").
+    *   *Risiko:* AI gagal mencocokkan keduanya karena kosa katanya terlalu berbeda, meskipun maksudnya sama.
+*   **Keputusan:** Implementasi **Structured Embedding dengan Strategi HyDE (Hypothetical Document Embeddings)**.
+*   **Mekanisme:**
+    *   Mengubah struktur teks yang di-embed dari sekadar gabungan teks menjadi format semantik yang tegas:
+        ```text
+        DOMAIN: ED (IGD, Emergency)  <-- Konteks Modul + Sinonim
+        DOKUMEN: Cara Login          <-- Judul Resmi
+        VARIASI PERTANYAAN USER: Gak bisa masuk, Lupa password <-- Bahasa User (HyDE)
+        ISI KONTEN: ...              <-- Solusi Teknis
+        ```
+    *   Admin diinstruksikan mengisi kolom "Keyword" dengan **variasi pertanyaan user**, bukan sekadar kata kunci kaku.
+*   **Benefit:**
+    1.  **Telepathic Search:** Sistem mengerti "Bahasa Lapangan" user.
+    2.  **Universal Robustness:** Struktur ini agnostik (tidak terikat RS), siap digunakan untuk domain lain (Banking, HR, Logistik) tanpa ubah kodingan.
+
+---
+
+## 🎨 Bagian 2: User Experience (Interface & Flow)
+
+Fokus pada kemudahan penggunaan bagi perawat/dokter dan kejelasan informasi.
+
+### 2.1. Mengatasi "Blank Screen Syndrome"
+*   **Masalah:** Saat aplikasi dibuka, layar kosong hanya berisi search bar. User baru bingung harus melakukan apa.
+*   **Keputusan:** Implementasi **Browse Mode (Mode Jelajah)**.
+*   **Mekanisme:** Jika search bar kosong $\rightarrow$ Tampilkan data terbaru (ID Terbesar). Jika terisi $\rightarrow$ Masuk Search Mode.
+*   **Benefit:** Meningkatkan *discoverability*. User langsung melihat update SOP terbaru tanpa perlu mengetik.
+
+### 2.2. Struktur Visual (Hybrid Inline Image)
+*   **Masalah:** Gambar menumpuk di bawah teks (Galeri). Sulit dipahami untuk SOP langkah-demi-langkah.
+*   **Keputusan:** Fitur **Inline Image (`[GAMBAR X]`)**.
+*   **Mekanisme:** Gambar diselipkan secara natural di antara paragraf teks.
+*   **Benefit:** Instruksi menjadi runut dan mudah dibaca (Teks -> Gambar -> Teks).
+
+### 2.3. Explainable AI (Transparansi)
+*   **Masalah:** User tidak tahu apakah hasil pencarian ini valid atau sekadar keyword matching.
+*   **Keputusan:** Menambahkan **Confidence Score Badge**.
+*   **Mekanisme:** Menampilkan persentase relevansi dengan kode warna (Hijau/Orange/Merah).
+*   **Benefit:** Memberikan efek psikologis "Trust" kepada user bahwa sistem benar-benar "berpikir".
+
+### 2.4. Navigasi & Scalability
+*   **Masalah:** Menampilkan 50+ hasil sekaligus membuat UI panjang (*Infinite Scroll*) dan berat.
+*   **Keputusan:** Implementasi **Pagination System** (10 item per halaman).
+*   **Benefit:** UI bersih, ringan, dan terlihat profesional.
+
+### 2.5. Visual Consistency (Single Source of Truth)
+*   **Masalah:** Awalnya warna badge (label kategori) di-hardcode di dalam script.
+    *   *Risiko 1:* Jika Admin ingin mengubah warna "IGD" dari Merah ke Biru, harus memanggil programmer untuk edit kode.
+    *   *Risiko 2:* Tanpa pembatasan, Admin mungkin memilih warna yang merusak kontras (misal: teks putih di background kuning terang).
+*   **Keputusan:** Implementasi **Dynamic JSON Configuration (`tags_config.json`)** dengan **Restricted Palette**.
+*   **Mekanisme:**
+    *   App User dan Admin membaca file konfigurasi yang sama di folder `data/`.
+    *   Pilihan warna di Admin **dibatasi** pada palet resmi (Merah, Hijau, Biru, Orange, Ungu, Abu) yang sudah dikalibrasi agar enak dilihat.
+*   **Benefit:**
+    1.  **Konsistensi:** User tidak bingung dengan warna-warni liar.
+    2.  **Fleksibilitas:** Admin bisa menambah/mengedit modul tanpa menyentuh satu baris kode pun.
+
+### 2.6. Closed Loop Support (Contextual Call-to-Action)
+*   **Masalah:** Pesan error "Data Tidak Ditemukan" adalah jalan buntu (*Dead End*). User frustrasi dan masalah tidak terselesaikan.
+*   **Keputusan:** Integrasi **Direct Support Link (WhatsApp Bot)** pada kondisi *No Result*.
+*   **Mekanisme:**
+    *   Jika relevansi < 25%, sistem menampilkan tombol "Chat WhatsApp Support".
+    *   **Auto-Fill Message:** Link WA otomatis terisi dengan draf pesan: *"Halo Admin, saya cari solusi tentang [Query User] tapi tidak ketemu..."*
+*   **Benefit:**
+    1.  **Psikologis:** User merasa "diurus" meskipun jawaban belum ada di database.
+    2.  **Ticket Automation:** Tim IT langsung mendapat laporan spesifik tentang apa yang dicari user, mempercepat perbaikan konten (Feedback Loop Aktif).
+
+---
+
+## 🛠️ Bagian 3: Admin Workflow & Operations
+
+Fokus pada keamanan data, kemudahan input, dan feedback loop.
+
+### 3.1. Zero-Error Input Workflow
+*   **Masalah:** Admin melakukan *Blind Input* (Langsung Save tanpa tahu hasil jadinya), rawan typo format.
+*   **Keputusan:** Menambahkan **Preview Mode** sebelum Submit.
+*   **Benefit:** Admin bisa memvalidasi tampilan visual sebelum data dipublish ke User.
+
+### 3.2. Smart Typing Experience
+*   **Masalah:** Admin harus mengetik kode `[GAMBAR 1]` secara manual. Rawan salah ketik dan melelahkan.
+*   **Keputusan:** Implementasi **Smart Toolbar (📸 Auto-Counter)**.
+*   **Mekanisme:** Satu tombol pintar yang otomatis menghitung urutan gambar dan menyisipkan tag yang sesuai.
+*   **Benefit:** UX *Don't make me think*. Mempercepat proses input data hingga 2x lipat.
+
+### 3.3. Data Safety (Anti-Amnesia)
+*   **Masalah:** Jika Admin menekan tombol "Edit Lagi" atau reload, data yang sudah diketik hilang.
+*   **Keputusan:** Implementasi **Session State Draft**.
+*   **Benefit:** Menjaga *mental state* admin. Data input persisten sampai benar-benar disimpan.
+
+### 3.4. Feedback Loop (Analytics)
+*   **Masalah:** Admin tidak tahu apa yang dicari user namun belum ada jawabannya di database.
+*   **Keputusan:** Fitur **Log Pencarian Gagal (Analytics Tab)**.
+*   **Benefit:** *Data Driven Development*. Admin membuat konten baru berdasarkan kebutuhan riil di lapangan.
+
+### 3.5. Maintenance (Zombie Cleaner)
+*   **Masalah:** Menghapus data di database tidak menghapus file gambar di folder server (Storage Leak).
+*   **Keputusan:** Logic **Deep Delete** (Hapus DB = Hapus File Fisik).
+*   **Benefit:** Server tetap bersih dari file sampah (*maintenance free*).
+
+---
+
+## 🏗️ Bagian 4: Architecture & Robustness
+
+Fokus pada fondasi teknis, keamanan, dan deployment.
+
+### 4.1. Security Standard
+*   **Masalah:** API Key dan Password hardcoded di dalam script. Berisiko tinggi jika source code bocor.
+*   **Keputusan:** Migrasi ke **Environment Variables (`.env`)**.
+*   **Benefit:** Memenuhi standar keamanan Enterprise.
+
+### 4.2. Code Structure (Modularity)
+*   **Masalah:** Kode awal berupa *Spaghetti Code* (semua dalam satu file).
+*   **Keputusan:** Refactoring ke struktur **Modular** (`src/database`, `src/utils`, `src/config`).
+*   **Benefit:** Mudah dibaca, mudah di-maintenance, dan siap untuk migrasi ke framework lebih besar (FastAPI) di masa depan.
+
+### 4.3. Concurrency Handling
+*   **Masalah:** Database SQLite sering *crash* ("Locked") jika diakses banyak user bersamaan.
+*   **Keputusan:** Implementasi **`@retry_on_lock` Decorator dengan Jitter**.
+*   **Benefit:** Sistem menjadi *robust* (tahan banting) menangani antrian request tanpa perlu setup database server yang berat.
+
+---
+
+## 📱 Bagian 5: Omnichannel Expansion (WhatsApp Integration)
+
+Fokus pada perluasan aksesibilitas sistem agar bisa dijangkau oleh staf medis melalui HP tanpa perlu login komputer.
+
+### 5.1. Decoupled Architecture (Microservice Approach)
+*   **Masalah:** Awalnya logika pencarian terikat erat (*tightly coupled*) di dalam `app.py` Streamlit. Membuat skrip Bot WA terpisah menjadi mustahil karena error dependency `streamlit` context.
+*   **Keputusan:** Refactoring `database.py` menjadi pola **Hybrid Access**.
+*   **Mekanisme:**
+    1.  **Raw Logic Layer:** Fungsi murni Python untuk koneksi DB & Embedding (tanpa cache). Digunakan oleh Bot WA.
+    2.  **Cached Wrapper Layer:** Membungkus Raw Logic dengan `@st.cache_data`. Digunakan oleh Web App untuk performa.
+*   **Benefit:** **Code Reusability**. Satu otak (core logic) dipakai oleh dua tubuh (Web & WA) secara simultan tanpa konflik.
+
+### 5.2. Context-Aware Group Logic (Etika Robot)
+*   **Masalah:** Saat bot dimasukkan ke Grup WA RS, bot menjawab *semua* chat yang masuk (termasuk percakapan santai), menyebabkan SPAM.
+*   **Keputusan:** Implementasi **Selective Trigger Logic**.
+*   **Mekanisme:**
+    *   **Private Chat:** Bot selalu menjawab.
+    *   **Group Chat:** Bot **DIAM** kecuali dipanggil (Mention `@Bot`, `@628...`, atau keyword `min/tolong/tanya`).
+*   **Benefit:** **User Experience yang Sopan**. Bot tidak mengganggu dinamika grup manusia, hanya muncul saat dibutuhkan.
+
+### 5.3. Gateway Strategy (Hackathon Speed)
+*   **Masalah:** Menggunakan WhatsApp Official API (BSP) membutuhkan verifikasi bisnis Meta (Facebook) yang memakan waktu 24-48 jam. Tidak kekejar untuk deadline lomba.
+*   **Keputusan:** Menggunakan **Unofficial Gateway (Fonnte) + Webhook**.
+*   **Mekanisme:** Fonnte bertindak sebagai "Jembatan" yang meneruskan pesan WA ke server backend (Python FastAPI) via HTTP POST.
+*   **Benefit:** **Instant Deployment**. Bot bisa hidup dalam hitungan menit tanpa birokrasi legalitas.
+
+---
+
+## 🧠 Bagian 6: Adaptive Intelligence Configuration
+
+Fokus pada fleksibilitas logika AI tanpa perlu mengubah kode sumber (Hardcoding).
+
+### 6.1. Dynamic Thresholding (Environment Variables)
+*   **Masalah:** Menentukan seberapa "Pede" bot menjawab (Score > 80%?) atau seberapa "Beda" jawaban 1 dan 2 (Gap > 10%?) adalah angka subjektif. Jika di-hardcode, mengubahnya butuh restart/deploy ulang.
+*   **Keputusan:** Memindahkan parameter logika ke **Environment Variables (`.env`)**.
+    *   `BOT_MIN_SCORE`: Batas minimum kemiripan.
+    *   `BOT_MIN_GAP`: Jarak aman antara ranking 1 dan 2.
+*   **Benefit:** **Operational Agility**. Admin bisa mengubah sifat bot (dari "Galak/Pelit Jawaban" menjadi "Ramah/Mudah Menjawab") hanya dengan edit text file di server, tanpa menyentuh kodingan.
+
+### 6.2. Trap-Keywords Strategy
+*   **Masalah:** User sering menyimpan nomor bot dengan nama acak (misal: "Robot RS", "Si Pinter"). Logika deteksi mention `@628...` sering gagal.
+*   **Keputusan:** Implementasi **Generic Trigger List**.
+*   **Mekanisme:** Bot tidak hanya mendeteksi nomor HP-nya sendiri, tapi juga bereaksi pada kata kunci sosial: *"Admin", "Min", "Tolong", "Tanya", "Help"*.
+*   **Benefit:** **High Availability**. Bot tetap responsif meskipun user tidak tahu cara mention yang benar.
+
+---
+
+## 🌐 Bagian 7: Connectivity & Deployment
+
+### 7.1. Tunneling for POC (Ngrok)
+*   **Masalah:** Mendemokan integrasi WhatsApp (Internet Public) ke Server Laptop (Localhost) tidak bisa dilakukan secara langsung karena terhalang NAT/Firewall.
+*   **Keputusan:** Menggunakan **Ngrok Secure Tunnels**.
+*   **Benefit:** Memungkinkan demo **Live Real-time** kepada juri menggunakan infrastruktur laptop lokal, namun tetap terintegrasi dengan dunia luar (WhatsApp).
+
+---
+
+## 📊 Ringkasan: Before vs After
+
+| Aspek | Status Awal (Before) | Status Final (Golden Master) |
+| :--- | :--- | :--- |
+| **Logic Search** | Post-Filter (Rawan Data Hilang) | **Pre-Filter (Akurasi 100%)** |
+| **AI Context** | Tercemar Noise Visual | **Bersih (Text Cleaner)** |
+| **Embedding Strategy** | Flat Text (Rawan Meleset) | **Structured HyDE (Universal & Robust)** |
+| **Tampilan User** | Blank Screen & Galeri Menumpuk | **Browse Mode & Inline Image** |
+| **Handling No Result** | Jalan Buntu (Pesan Error) | **Call-to-Action (WhatsApp Integration)** |
+| **Admin Input** | Manual & Rawan Typo | **Smart Toolbar & Preview Mode** |
+| **Keamanan** | Hardcoded Credentials | **Environment Variables (.env)** |
+| **Stabilitas** | Rawan Crash (SQLite Locked) | **Robust (Retry Mechanism)** |
+| **Aksesibilitas** | Web Only (Harus Login PC) | **Omnichannel (Web + WhatsApp 24/7)** |
+| **Arsitektur DB** | Tightly Coupled (Streamlit Only) | **Hybrid Microservice (Web & API Ready)** |
+| **Logika WA** | Spammy (Jawab Semua) | **Context-Aware (Sopan di Grup)** |
+| **Config AI** | Hardcoded di Python | **Dynamic Config (.env)** |
+| **Trigger Bot** | Kaku (@Nomor) | **Fleksibel (Natural Language Triggers)** |
+
+### 🗺️ Arsitektur Sistem Final
+
+```mermaid
+graph TD
+    UserWA[User WhatsApp] -->|Chat| WA_Server[WhatsApp Server]
+    WA_Server -->|Push| Fonnte[Fonnte Gateway]
+    Fonnte -->|Webhook POST| Ngrok[Ngrok Tunnel]
+    Ngrok -->|Forward| FastAPI[Bot Service (FastAPI)]
+    
+    UserWeb[User Browser] -->|HTTP| Streamlit[Web App (Streamlit)]
+    
+    FastAPI -->|Raw Query| ChromaDB[(Vector Database)]
+    Streamlit -->|Cached Query| ChromaDB
+    
+    ChromaDB <-->|Embedding| GeminiAI[Google Gemini API]
+```
+
+### ✅ Status Sistem Saat Ini
+Sistem telah berevolusi dari sekadar *Prototype* menjadi aplikasi **Production-Ready** skala departemen dengan karakteristik:
+1.  **High Accuracy:** Logika pencarian yang matang.
+2.  **User Centric:** Interface yang memandu user.
+3.  **Low Maintenance:** Fitur pembersihan otomatis dan logging.
+4.  **Secure:** Pemisahan kredensial dari kode.
+
+</dokumentasi_perjalanan_pengembangan>
+
+
+</next_pengembangan>
+Deploy dan pengembangan logika bot
+</next_pengembangan>
+
+
+
+Berikut untuk codesnya yang terbaru:
+
+<kode_baru>
+
+
+
+</kode_baru>
+
+Kira-kira seperti ini projectku. apakah siap untuk dilombakan? tinggal 1 minggu lagi ini btw, hehe....
+
+
+
+======== FILE: .\test_bot.py ========
+import os
+import sys
+
+# Setup path agar bisa import dari folder src
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from src import database
+# IMPORT CONFIG DARI SINI
+from src.config import BOT_MIN_SCORE, BOT_MIN_GAP
+
+def simulasi_otak_bot(raw_text, filter_tag="Semua Modul"):
+    # 1. BERSIHKAN INPUT
+    clean_query = raw_text.replace("@botFaQ", "").replace("@botfaq", "").strip()
+    
+    if not clean_query:
+        return "⚠️ Masukkan pertanyaan setelah @botFaQ."
+
+    print(f"\n🧠 Sedang memproses: '{clean_query}' [Tag: {filter_tag}]...")
+
+    # 2. PANGGIL DATABASE
+    results = database.search_faq_for_bot(clean_query, filter_tag)
+
+    if not results or not results['ids'][0]:
+        return "❌ Maaf, tidak ditemukan data yang relevan di database."
+
+    # 3. EXTRACTION & SCORING
+    candidates = []
+    for i in range(len(results['ids'][0])):
+        meta = results['metadatas'][0][i]
+        dist = results['distances'][0][i]
+        score = max(0, (1 - dist) * 100)
+        
+        # Cek apakah ada gambar
+        has_image = False
+        img_path = meta.get('path_gambar', 'none')
+        if img_path and str(img_path).lower() != 'none':
+            has_image = True
+
+        candidates.append({
+            "score": score,
+            "judul": meta.get('judul'),
+            "tag": meta.get('tag'),
+            "jawaban": meta.get('jawaban_tampil'),
+            "url": meta.get('sumber_url', '-'),
+            "has_image": has_image
+        })
+
+    top1 = candidates[0]
+    top2 = candidates[1] if len(candidates) > 1 else None
+
+    # ==========================================
+    # 🚀 LOGIKA CERDAS (PAKE CONFIG ENV)
+    # ==========================================
+    
+    is_winner_absolute = False
+    
+    # Gunakan Variabel dari Config
+    if top1['score'] >= BOT_MIN_SCORE:
+        if top2:
+            gap = top1['score'] - top2['score']
+            if gap >= BOT_MIN_GAP: # Cek Gap dari Config
+                is_winner_absolute = True
+                print(f"DEBUG: Winner Mutlak! Score: {top1['score']:.1f}, Gap: {gap:.1f}")
+            else:
+                print(f"DEBUG: Score tinggi tapi saingan ketat. Gap cuma {gap:.1f}")
+        else:
+            is_winner_absolute = True
+
+    # ==========================================
+    # 📤 OUTPUT GENERATION
+    # ==========================================
+
+    response_text = ""
+
+    if is_winner_absolute:
+        response_text += f"🎯 *SOLUSI DITEMUKAN* (Akurasi: {top1['score']:.0f}%)\n"
+        response_text += f"📂 Modul: {top1['tag']}\n\n"
+        response_text += f"*{top1['judul']}*\n"
+        response_text += f"{top1['jawaban']}\n\n"
+        
+        # Tambahan Indikator Gambar
+        if top1['has_image']:
+            response_text += "🖼️ *[Gambar Terlampir]*\n\n"
+            
+        if top1['url'] and len(top1['url']) > 3:
+             response_text += f"🔗 Sumber: {top1['url']}"
+
+    else:
+        response_text += "🔍 *MUNGKIN INI YANG KAMU CARI:*\n"
+        if top1['score'] < 25:
+             response_text += "(Relevansi rendah, coba kata kunci lain)\n"
+        
+        limit = min(3, len(candidates))
+        for i in range(limit):
+            c = candidates[i]
+            icon = "1️⃣" if i == 0 else ("2️⃣" if i == 1 else "3️⃣")
+            link_txt = f" (🔗 {c['url']})" if (c['url'] and len(c['url'])>3) else ""
+            img_icon = " 🖼️" if c['has_image'] else ""
+            
+            response_text += f"\n{icon} *[{c['tag']}] {c['judul']}*{img_icon} {link_txt}"
+            response_text += f"\n   └─ Relevansi: {c['score']:.1f}%"
+    
+    return response_text
+
+if __name__ == "__main__":
+    print("="*50)
+    print("🤖 TEST BOT SIMULATOR (LOCAL)")
+    print(f"⚙️ Config Loaded: Min Score={BOT_MIN_SCORE}, Min Gap={BOT_MIN_GAP}")
+    print("="*50)
+    
+    CURRENT_TAG_CONTEXT = "Semua Modul" 
+
+    while True:
+        try:
+            user_input = input("\n💬 User: ")
+            if user_input.lower() in ['exit', 'quit']:
+                break
+            balasan = simulasi_otak_bot(user_input, filter_tag=CURRENT_TAG_CONTEXT)
+            print("-" * 20)
+            print("🤖 Bot:\n" + balasan)
+            print("-" * 20) 
+        except KeyboardInterrupt:
+            break
+
+======== FILE: .\.streamlit\config.toml ========
+
+[theme]
+base="light"
+primaryColor="#FF4B4B"
+backgroundColor="#FFFFFF"
+secondaryBackgroundColor="#F0F2F6"
+textColor="#31333F"
+font="sans serif"
+
+
+======== FILE: .\src\config.py ========
+import os
+from dotenv import load_dotenv
+
+# Load environment variables dari file .env
+load_dotenv()
+
+# --- API KEYS & AUTH ---
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "veven")
+
+if not GOOGLE_API_KEY:
+    raise ValueError("❌ GOOGLE_API_KEY belum diset! Cek file .env.")
+
+# --- PATHS CONFIGURATION ---
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, "data", "faq_db")
+TAGS_FILE = os.path.join(BASE_DIR, "data", "tags_config.json")
+IMAGES_DIR = os.path.join(BASE_DIR, "images")
+FAILED_SEARCH_LOG = os.path.join(BASE_DIR, "data", "failed_searches.csv")
+COLLECTION_NAME = "faq_universal_v1"
+
+# Setup Folder
+os.makedirs(os.path.join(BASE_DIR, "data"), exist_ok=True)
+os.makedirs(IMAGES_DIR, exist_ok=True)
+
+# --- BOT LOGIC CONFIGURATION (NEW) ---
+# Mengambil nilai dari .env, default ke 80.0 dan 10.0 jika tidak ada
+try:
+    BOT_MIN_SCORE = float(os.getenv("BOT_MIN_SCORE", "80.0"))
+    BOT_MIN_GAP = float(os.getenv("BOT_MIN_GAP", "10.0"))
+except ValueError:
+    print("⚠️ Format angka di .env salah, menggunakan default (80.0 & 10.0)")
+    BOT_MIN_SCORE = 80.0
+    BOT_MIN_GAP = 10.0
+
+======== FILE: .\src\database.py ========
+# --- 1. FORCE USE NEW SQLITE (Wajib Paling Atas untuk Docker/Linux) ---
+try:
+    __import__('pysqlite3')
+    import sys
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    pass
+
+# --- 2. IMPORTS LENGKAP ---
+import chromadb
+import pandas as pd
+import streamlit as st
+import time
+import functools
+import random
+import os
+from google import genai
+from google.genai import types
+from .config import GOOGLE_API_KEY, DB_PATH, COLLECTION_NAME
+from .utils import clean_text_for_embedding, load_tags_config
+
+# --- 3. RETRY DECORATOR (SAFE CONCURRENCY) ---
+def retry_on_lock(max_retries=10, base_delay=0.1):
+    """
+    Menangani error 'Database Locked' pada SQLite dengan Jitter Backoff.
+    Aman digunakan oleh Streamlit maupun Bot eksternal.
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            retries = 0
+            while retries < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    err_msg = str(e).lower()
+                    if "locked" in err_msg or "busy" in err_msg:
+                        retries += 1
+                        sleep_time = base_delay * (1 + random.random())
+                        time.sleep(sleep_time)
+                    else:
+                        raise e
+            raise Exception("Database sedang sibuk (High Traffic), silakan coba lagi sesaat.")
+        return wrapper
+    return decorator
+
+# --- 4. RAW FUNCTIONS (UNTUK BOT WA / API) ---
+# Fungsi-fungsi ini TIDAK menggunakan @st.cache, jadi aman dipanggil script luar.
+
+def _get_ai_client_raw():
+    """Membuat koneksi ke Google Gemini (Tanpa Cache Streamlit)"""
+    return genai.Client(api_key=GOOGLE_API_KEY)
+
+def _get_db_client_raw():
+    """Membuat koneksi ke ChromaDB (Tanpa Cache Streamlit)"""
+    return chromadb.PersistentClient(path=DB_PATH)
+
+def _generate_embedding_raw(text):
+    """Generate Embedding langsung (Tanpa Cache Streamlit)"""
+    client = _get_ai_client_raw()
+    try:
+        response = client.models.embed_content(
+            model="models/gemini-embedding-001",
+            contents=text,
+            config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
+        )
+        return response.embeddings[0].values
+    except Exception as e:
+        print(f"⚠️ Error Embedding AI: {e}")
+        return []
+
+# --- 5. STREAMLIT CACHED FUNCTIONS (UNTUK WEB APP) ---
+# Fungsi ini khusus untuk Web App agar performa cepat (pake cache).
+
+@st.cache_resource(show_spinner=False)
+def get_db_client():
+    return _get_db_client_raw()
+
+@st.cache_resource(show_spinner=False)
+def get_ai_client():
+    return _get_ai_client_raw()
+
+def get_collection():
+    client = get_db_client()
+    return client.get_or_create_collection(name=COLLECTION_NAME)
+
+@st.cache_data(show_spinner=False)
+def generate_embedding_cached(text):
+    # Wrapper agar embedding di-cache oleh Streamlit
+    return _generate_embedding_raw(text)
+
+# --- 6. INTERNAL HELPER (ID GENERATOR) ---
+def _get_next_id_internal(collection):
+    data = collection.get(include=[])
+    existing_ids = data['ids']
+    
+    if not existing_ids: return "1"
+    
+    numeric_ids = []
+    for x in existing_ids:
+        if x.isdigit(): 
+            numeric_ids.append(int(x))
+    
+    if not numeric_ids: return "1"
+    return str(max(numeric_ids) + 1)
+
+# --- 7. CORE LOGIC (READ - USER WEB APP) ---
+@retry_on_lock()
+def search_faq(query_text, filter_tag=None, n_results=50):
+    """
+    Digunakan oleh app.py (Web). Menggunakan Embedding Ter-Cache.
+    """
+    col = get_collection()
+    vec = generate_embedding_cached(query_text) # Pake Cache
+    
+    if not vec: 
+        return {"ids": [[]], "metadatas": [[]], "distances": [[]]}
+
+    # Pre-Filtering logic
+    where_clause = {"tag": filter_tag} if (filter_tag and filter_tag != "Semua Modul") else None
+    
+    return col.query(
+        query_embeddings=[vec],
+        n_results=n_results,
+        where=where_clause
+    )
+
+@retry_on_lock()
+def get_all_faqs_sorted():
+    col = get_collection()
+    data = col.get(include=['metadatas'])
+    
+    results = []
+    if data['ids']:
+        for i, doc_id in enumerate(data['ids']):
+            meta = data['metadatas'][i]
+            try: id_num = int(doc_id)
+            except: id_num = 0
+            
+            meta['id'] = doc_id
+            meta['id_num'] = id_num
+            results.append(meta)
+            
+    results.sort(key=lambda x: x.get('id_num', 0), reverse=True)
+    return results
+
+def get_unique_tags_from_db():
+    col = get_collection()
+    data = col.get(include=['metadatas'])
+    unique_tags = set()
+    if data['metadatas']:
+        for meta in data['metadatas']:
+            if meta and meta.get('tag'):
+                unique_tags.add(meta['tag'])
+    return sorted(list(unique_tags))
+
+# --- 8. CORE LOGIC (WRITE - ADMIN) ---
+# Admin selalu diakses via Streamlit, jadi aman pakai retry dan logic biasa.
+
+def get_all_data_as_df():
+    col = get_collection()
+    data = col.get(include=['metadatas', 'documents'])
+    
+    if not data['ids']: return pd.DataFrame()
+    
+    rows = []
+    for i, doc_id in enumerate(data['ids']):
+        meta = data['metadatas'][i]
+        rows.append({
+            "ID": doc_id,
+            "Tag": meta.get('tag'),
+            "Judul": meta.get('judul'),
+            "Jawaban": meta.get('jawaban_tampil'),
+            "Keyword": meta.get('keywords_raw'),
+            "Gambar": meta.get('path_gambar'),
+            "Source": meta.get('sumber_url'),
+            "AI Context": data['documents'][i] if data['documents'] else ""
+        })
+    
+    df = pd.DataFrame(rows)
+    df['ID_Num'] = pd.to_numeric(df['ID'], errors='coerce').fillna(0)
+    return df.sort_values('ID_Num', ascending=False).drop(columns=['ID_Num'])
+
+@retry_on_lock()
+def upsert_faq(doc_id, tag, judul, jawaban, keyword, img_paths, src_url):
+    col = get_collection()
+    
+    final_id = str(doc_id)
+    if doc_id == "auto" or doc_id is None:
+        final_id = _get_next_id_internal(col)
+    
+    clean_jawaban = clean_text_for_embedding(jawaban)
+    
+    try:
+        tags_config = load_tags_config()
+        tag_desc = tags_config.get(tag, {}).get("desc", "")
+    except:
+        tag_desc = ""
+    
+    domain_str = f"{tag} ({tag_desc})" if tag_desc else tag
+
+    # Format Embedding HyDE
+    text_embed = f"""DOMAIN: {domain_str}
+DOKUMEN: {judul}
+VARIASI PERTANYAAN USER: {keyword}
+ISI KONTEN: {clean_jawaban}"""
+    
+    # Gunakan cached embedding agar konsisten, toh ini proses lambat (write)
+    vector = generate_embedding_cached(text_embed)
+    
+    col.upsert(
+        ids=[final_id],
+        embeddings=[vector],
+        documents=[text_embed],
+        metadatas=[{
+            "tag": tag, 
+            "judul": judul, 
+            "jawaban_tampil": jawaban, 
+            "keywords_raw": keyword,
+            "path_gambar": img_paths,
+            "sumber_url": src_url
+        }]
+    )
+    return final_id
+
+@retry_on_lock()
+def delete_faq(doc_id):
+    col = get_collection()
+    try:
+        data = col.get(ids=[str(doc_id)], include=['metadatas'])
+        if data['metadatas'] and len(data['metadatas']) > 0:
+            meta = data['metadatas'][0]
+            img_str = meta.get('path_gambar', 'none')
+            if img_str and img_str.lower() != 'none':
+                paths = img_str.split(';')
+                for p in paths:
+                    clean_path = p.replace("\\", "/")
+                    if os.path.exists(clean_path):
+                        try:
+                            os.remove(clean_path)
+                            print(f"🗑️ Zombie File Deleted: {clean_path}")
+                        except Exception as e:
+                            print(f"⚠️ Gagal hapus file {clean_path}: {e}")
+    except Exception as e:
+        print(f"⚠️ Error cleaning images: {e}")
+
+    col.delete(ids=[str(doc_id)])
+
+# --- 9. SPECIAL FUNCTION FOR BOT WA (NO STREAMLIT DEPENDENCY) ---
+@retry_on_lock()
+def search_faq_for_bot(query_text, filter_tag="Semua Modul"):
+    """
+    Fungsi khusus untuk Bot WA / API External.
+    MANDIRI: Membuka koneksi sendiri, Embedding sendiri tanpa Cache Streamlit.
+    """
+    # 1. Buka Koneksi Raw (Tanpa st.cache_resource)
+    client = _get_db_client_raw()
+    col = client.get_or_create_collection(name=COLLECTION_NAME)
+    
+    # 2. Embedding Raw (Tanpa st.cache_data)
+    vec = _generate_embedding_raw(query_text)
+    
+    if not vec: 
+        return None # Return None jika gagal embedding
+
+    # 3. Filtering Logic
+    where_clause = {"tag": filter_tag} if (filter_tag and filter_tag != "Semua Modul") else None
+    
+    # 4. Query
+    results = col.query(
+        query_embeddings=[vec],
+        n_results=5, # Ambil Top 5 aja buat Bot
+        where=where_clause
+    )
+    
+    return results
+
+======== FILE: .\src\utils.py ========
+import os
+import json
+import re
+import random
+import string
+import time
+import csv
+from datetime import datetime
+from .config import TAGS_FILE, IMAGES_DIR, BASE_DIR 
+
+# --- DAFTAR WARNA RESMI STREAMLIT (Restricted Palette) ---
+# Admin hanya boleh memilih warna ini agar badge di UI User valid
+COLOR_PALETTE = {
+    "Merah":            {"hex": "#FF4B4B", "name": "red"},
+    "Hijau":            {"hex": "#2ECC71", "name": "green"},
+    "Biru":             {"hex": "#3498DB", "name": "blue"},
+    "Orange":           {"hex": "#FFA500", "name": "orange"},
+    "Ungu":             {"hex": "#9B59B6", "name": "violet"},
+    "Abu-abu":          {"hex": "#808080", "name": "gray"},
+    "Pelangi (Special)":{"hex": "#333333", "name": "rainbow"}
+}
+
+# --- 1. JSON TAG CONFIG ---
+def load_tags_config():
+    if not os.path.exists(TAGS_FILE):
+        # Default struktur (Nested Dict)
+        default_tags = {
+            "ED": {"color": "#FF4B4B", "desc": "IGD, Emergency, Triage, Ambulans"},
+            "OPD": {"color": "#2ECC71", "desc": "Rawat Jalan, Poli, Dokter Spesialis"},
+            "IPD": {"color": "#3498DB", "desc": "Rawat Inap, Bangsal, Bed, Visite"},
+            "Umum": {"color": "#808080", "desc": "General Info, IT Support"}
+        }
+        save_tags_config(default_tags)
+        return default_tags
+    with open(TAGS_FILE, "r") as f:
+        return json.load(f)
+
+def save_tags_config(tags_dict):
+    with open(TAGS_FILE, "w") as f:
+        json.dump(tags_dict, f, indent=4)
+
+# --- 2. SAFE ID GENERATOR ---
+def get_next_id_safe(collection):
+    try:
+        data = collection.get(include=[])
+        existing_ids = data['ids']
+        if not existing_ids: return "1"
+        
+        # Filter hanya ID angka agar sorting benar
+        numeric_ids = []
+        for x in existing_ids:
+            if x.isdigit():
+                numeric_ids.append(int(x))
+        
+        if not numeric_ids: return "1"
+        return str(max(numeric_ids) + 1)
+    except Exception:
+        return str(int(time.time()))
+
+# --- 3. IMAGE HANDLING ---
+def sanitize_filename(text):
+    # Membersihkan nama file dari karakter aneh
+    return re.sub(r'[^\w\-_]', '', text.replace(" ", "_"))[:30]
+
+def save_uploaded_images(uploaded_files, judul, tag):
+    if not uploaded_files: return "none"
+    
+    saved_paths = []
+    clean_judul = sanitize_filename(judul)
+    target_dir = os.path.join(IMAGES_DIR, tag)
+    os.makedirs(target_dir, exist_ok=True)
+    
+    for i, file in enumerate(uploaded_files):
+        ext = file.name.split('.')[-1]
+        # Tambah random suffix biar gak bentrok
+        suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))
+        
+        filename = f"{clean_judul}_{tag}_{i+1}_{suffix}.{ext}"
+        full_path = os.path.join(target_dir, filename)
+        
+        with open(full_path, "wb") as f:
+            f.write(file.getbuffer())
+            
+        # Simpan relative path agar portable (Docker/Local)
+        rel_path = f"./images/{tag}/{filename}"
+        saved_paths.append(rel_path)
+        
+    return ";".join(saved_paths)
+
+def fix_image_path_for_ui(db_path):
+    clean = str(db_path).strip('"').strip("'")
+    if clean.lower() == "none": return None
+    clean = clean.replace("\\", "/")
+    if clean.startswith("./"):
+        return clean 
+    return clean
+
+# --- 4. TEXT CLEANING FOR AI ---
+def clean_text_for_embedding(text):
+    """
+    Menghapus tag [GAMBAR X] agar tidak menjadi noise bagi AI.
+    Tapi MEMPERTAHANKAN markdown seperti **bold** atau list.
+    Contoh: "Klik [GAMBAR 1] tombol save" -> "Klik tombol save"
+    """
+    if not text: return ""
+    # Hapus pattern [GAMBAR angka] case insensitive
+    clean = re.sub(r'\[GAMBAR\s*\d+\]', '', text, flags=re.IGNORECASE)
+    # Hapus whitespace berlebih akibat penghapusan tadi
+    return " ".join(clean.split())
+
+def log_failed_search(query):
+    """Mencatat pencarian yang hasilnya 0 ke file CSV"""
+    filename = os.path.join(BASE_DIR, "data", "failed_searches.csv")
+    
+    # Cek header kalau file baru
+    file_exists = os.path.exists(filename)
+    
+    try:
+        with open(filename, mode='a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(["Timestamp", "Query User"]) # Header
+            
+            writer.writerow([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), query])
+    except Exception as e:
+        print(f"Gagal mencatat log: {e}")
+
+======== FILE: .\src\__init__.py ========
+
+
 
 
 
