@@ -52,8 +52,21 @@ def _get_ai_client_raw():
     return genai.Client(api_key=GOOGLE_API_KEY)
 
 def _get_db_client_raw():
-    """Membuat koneksi ke ChromaDB (Tanpa Cache Streamlit)"""
-    return chromadb.PersistentClient(path=DB_PATH)
+    """
+    Logika Cerdas:
+    Cek apakah ada ENV Host Server?
+    - Ada: Pake Mode Server (Production/Docker) 🚀
+    - Ga ada: Pake Mode File (Local Laptop) 📂
+    """
+    host = os.getenv("CHROMA_HOST")
+    port = os.getenv("CHROMA_PORT")
+
+    if host and port:
+        # Client-Server Mode
+        return chromadb.HttpClient(host=host, port=int(port))
+    else:
+        # Local Mode (Fallback)
+        return chromadb.PersistentClient(path=DB_PATH)
 
 def _generate_embedding_raw(text):
     """Generate Embedding langsung (Tanpa Cache Streamlit)"""

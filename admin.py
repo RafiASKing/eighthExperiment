@@ -64,7 +64,7 @@ with tab2:
         matches = re.findall(r'\[GAMBAR\s*\d+\]', current_text, flags=re.IGNORECASE)
         next_num = len(matches) + 1
         
-        tag_to_insert = f"\n\n[GAMBAR {next_num}]\n\n"
+        tag_to_insert = f"\n[GAMBAR {next_num}]\n"
         st.session_state.in_a += tag_to_insert
 
     # --- PHASE 1: INPUT FORM ---

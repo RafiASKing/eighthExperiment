@@ -1,44 +1,70 @@
 version: '3'
 
 services:
-  # --- SERVICE 1: USER APP (Port 8501) ---
+  # --- 1. CHROMA DB SERVER (SI PUSTAKAWAN) ---
+  chroma-server:
+    image: chromadb/chroma:latest
+    container_name: faq_chroma_server
+    restart: always
+    ports:
+      - "8000:8000"  # <-- Port 8000 Host : Port 8000 Container (JANGAN UBAH INI)
+    volumes:
+      - ./data/chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+
+  # --- 2. WHATSAPP BOT (YANG HARUS MENGALAH) ---
+  faq-bot:
+    build: .
+    container_name: faq_bot_wa
+    restart: always
+    ports:
+      # KIRI = Pintu di Laptop Kamu (Host)
+      # KANAN = Pintu di dalem Container (Code Python)
+      - "8005:8000"  # <--- UBAH KIRI JADI 8005!
+    depends_on:
+      - chroma-server
+    env_file: .env
+    environment:
+      - CHROMA_HOST=chroma-server
+      - CHROMA_PORT=8000
+    # Command tetap jalan di port 8000 container, tapi diakses dari luar via 8005
+    command: uvicorn bot_wa:app --host 0.0.0.0 --port 8000
+
+  # --- 3. USER APP ---
   faq-user:
     build: .
     container_name: faq_user_app
     restart: always
     ports:
       - "8501:8501"
+    depends_on:
+      - chroma-server
     volumes:
       - ./data:/app/data
       - ./images:/app/images
       - ./.streamlit:/app/.streamlit
     env_file: .env
+    environment:
+      - CHROMA_HOST=chroma-server # Nunjuk ke nama service di atas
+      - CHROMA_PORT=8000
     command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
 
-  # --- SERVICE 2: ADMIN APP (Port 8502) ---
+  # --- 4. ADMIN APP ---
   faq-admin:
     build: .
     container_name: faq_admin_app
     restart: always
     ports:
       - "8502:8502"
+    depends_on:
+      - chroma-server
     volumes:
       - ./data:/app/data
       - ./images:/app/images
       - ./.streamlit:/app/.streamlit
     env_file: .env
+    environment:
+      - CHROMA_HOST=chroma-server
+      - CHROMA_PORT=8000
     command: streamlit run admin.py --server.port=8502 --server.address=0.0.0.0
-
-  # --- SERVICE 3: WHATSAPP BOT (Port 8000) ---
-  faq-bot:
-    build: .
-    container_name: faq_bot_wa
-    restart: always
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/app/data
-      - ./images:/app/images
-    env_file: .env
-    # Menjalankan FastAPI dengan Uvicorn
-    command: uvicorn bot_wa:app --host 0.0.0.0 --port 8000

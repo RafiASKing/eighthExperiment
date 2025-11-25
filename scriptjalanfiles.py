@@ -10,7 +10,7 @@ def combine_files(root_dir, output_file, extensions):
     
     # 2. File yang Harus Dikecualikan Meskipun Ekstensinya Cocok (Excluding Specific Files)
     # File data atau dokumen yang tidak relevan untuk LLM.
-    EXCLUDE_FILES = ['faq_data.xlsx', 'scriptjalanfiles.py'] # scriptjalanfiles.py diabaikan agar tidak menggabungkan dirinya sendiri
+    EXCLUDE_FILES = ['faq_data.xlsx', 'scriptjalanfiles.py', 'single_script_for_llm.txt'] # scriptjalanfiles.py diabaikan agar tidak menggabungkan dirinya sendiri
     
     # 3. Ekstensi File yang Diinginkan
     FILE_EXTENSIONS = [
