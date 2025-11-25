@@ -2,6 +2,7 @@ backup/
 images/
 faq_db/
 data/faq_db/
+data/chroma_data
 faq_data.xlsx
 venv/
 __pycache__/
