@@ -32,6 +32,9 @@ services:
       retries: 10
 
   # --- 3. EVOLUTION API (VERSI BARU v2.2.2) ---
+# ... (service postgres tetap sama)
+
+  # --- 3. EVOLUTION API (VERSI LENGKAP) ---
   evolution-api:
     image: atendai/evolution-api:v2.2.2
     container_name: faq_evolution
@@ -49,9 +52,22 @@ services:
       - SERVER_URL=http://43.218.92.10:8081
       - AUTHENTICATION_API_KEY=admin123
       - AUTHENTICATION_EXPOSE_IN_URL=true
+      
+      # --- DATABASE CONFIGURATION ---
       - DATABASE_PROVIDER=postgresql
       - DATABASE_URL=postgresql://postgres:adminpassword@faq_postgres:5432/evolution?schema=public
+      
+      # [PENTING] Variabel ini HARUS ADA agar script startup tidak error ke 'user'
+      - DB_TYPE=postgres
+      - DB_HOST=faq_postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=adminpassword
+      - DB_NAME=evolution
+      
       - LOG_LEVEL=warn
+
+  # ... (service lainnya tetap)
 
 
   # --- 4. WHATSAPP BOT ---
