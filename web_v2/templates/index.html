@@ -3,21 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Siloam Knowledge Base</title>
-    <!-- Link ke CSS yang baru kita buat -->
+    <title>Hospital Knowledge Base</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
     <div class="container">
-        <h1>🏥 Siloam Knowledge Base</h1>
-        <p class="subtitle">Fast Cognitive Search System (V2)</p>
+        <!-- HEADER -->
+        <div class="header-box">
+            <h1>🏥 Hospital Knowledge Base (SOPs and FAQs)</h1>
+            <p class="subtitle">Fast Cognitive Search System</p>
+        </div>
 
         <!-- SEARCH FORM -->
         <form action="/" method="get" class="search-form">
+            <!-- Reset Page ke 0 setiap kali search baru -->
+            <input type="hidden" name="page" value="0"> 
+            
             <input type="text" name="q" class="search-input" 
-                   placeholder="Ketik kendala (cth: Gagal retur, cara login nurse)..." 
-                   value="{{ query }}" autofocus required>
+                   placeholder="Cari kendala (cth: gimana sih cara ngedit obat di emr ed pharmacy)..." 
+                   value="{{ query }}" autofocus>
             
             <select name="tag" class="filter-select">
                 {% for t in all_tags %}
@@ -28,39 +33,48 @@
             </select>
 
             <button type="submit" class="search-btn">Cari</button>
+            
+            <!-- Tombol Reset (Balik ke Home) -->
+            {% if query %}
+            <a href="/" class="reset-btn" title="Hapus pencarian">❌</a>
+            {% endif %}
         </form>
 
-        <!-- RESULTS SECTION -->
+        <!-- INFO STATUS -->
+        {% if is_search_mode %}
+            <p class="result-info">🔍 Menampilkan <strong>Top {{ total_items }}</strong> hasil paling relevan untuk: "<em>{{ query }}</em>"</p>
+        {% else %}
+            <p class="result-info">📂 Menampilkan Data Terbaru (Halaman {{ page + 1 }} dari {{ total_pages }})</p>
+        {% endif %}
+
+        <!-- RESULTS LIST -->
         <div class="results">
-            {% if query and not results %}
-                <div style="text-align: center; padding: 40px; color: #666;">
-                    <h3>❌ Tidak ditemukan hasil relevan</h3>
-                    <p>Coba gunakan kata kunci yang lebih umum.</p>
+            {% if not results %}
+                <div class="empty-state">
+                    <h3>❌ Tidak ditemukan data</h3>
+                    <p>Coba kalimat lain atau hubungi Tim IT.</p>
                 </div>
             {% endif %}
 
             {% for item in results %}
-                <!-- INI BAGIAN ACCORDION (GULUNGAN) -->
                 <details>
                     <summary>
                         <div class="summary-content">
-                            <!-- Badge Warna -->
                             <span class="badge" style="background-color: {{ item.badge_color }}">
                                 {{ item.tag }}
                             </span>
-                            <!-- Judul -->
-                            <span>{{ item.judul }}</span>
+                            <span class="title-text">{{ item.judul }}</span>
                         </div>
                         
-                        <!-- Score Visual -->
+                        <!-- Hanya tampilkan badge score jika SEARCH MODE -->
+                        {% if item.score %}
                         <span class="score-badge {{ item.score_class }}">
                             {{ item.score }}% Relevan
                         </span>
+                        {% endif %}
                     </summary>
 
-                    <!-- ISI KONTEN (Saat diklik baru kebuka) -->
                     <div class="faq-content">
-                        <!-- render HTML safe (gambar & format teks sudah diproses di backend) -->
                         {{ item.html_content | safe }}
                         
                         {% if item.sumber_url and item.sumber_url|length > 3 %}
@@ -74,11 +88,25 @@
             {% endfor %}
         </div>
 
-        {% if not query %}
-            <div style="text-align: center; color: #aaa; margin-top: 50px;">
-                <p>👋 Silakan ketik kata kunci untuk mulai mencari.</p>
-            </div>
+        <!-- PAGINATION (Hanya muncul jika BUKAN mode search dan halaman > 1) -->
+        {% if not is_search_mode and total_pages > 1 %}
+        <div class="pagination">
+            {% if page > 0 %}
+                <a href="/?page={{ page - 1 }}&tag={{ current_tag }}&q=" class="page-btn">⬅️ Sebelumnya</a>
+            {% else %}
+                <span class="page-btn disabled">⬅️ Sebelumnya</span>
+            {% endif %}
+
+            <span class="page-info">{{ page + 1 }} / {{ total_pages }}</span>
+
+            {% if page < total_pages - 1 %}
+                <a href="/?page={{ page + 1 }}&tag={{ current_tag }}&q=" class="page-btn">Berikutnya ➡️</a>
+            {% else %}
+                <span class="page-btn disabled">Berikutnya ➡️</span>
+            {% endif %}
+        </div>
         {% endif %}
+        
     </div>
 
 </body>
