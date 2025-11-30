@@ -14,25 +14,41 @@ services:
       - IS_PERSISTENT=TRUE
       - ANONYMIZED_TELEMETRY=False
 
-  # --- 2. EVOLUTION API (PENGGANTI WAHA) ---
+    # --- 2. POSTGRES DATABASE (WAJIB UNTUK EVOLUTION V2) ---
+  postgres:
+    image: postgres:15-alpine
+    container_name: faq_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: evolutionpassword
+      POSTGRES_DB: evolution
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+
+  # --- 3. EVOLUTION API (LOGIC BARU) ---
   evolution-api:
     image: atendai/evolution-api:v2.1.1
     container_name: faq_evolution
     restart: always
     ports:
-      - "8081:8081" # Kita pakai port 8081 biar gak bentrok sama web_v2 (8080)
+      - "8081:8081"
+    depends_on:
+      - postgres
     volumes:
       - ./evolution_instances:/evolution/instances
       - ./evolution_store:/evolution/store
     environment:
       - SERVER_PORT=8081
+      # Ganti IP ini dengan IP Public Lightsail kamu (agar QR code muncul)
       - SERVER_URL=http://43.218.92.10:8081
-      - DATABASE_PROVIDER=sqlite
-      - AUTHENTICATION_API_KEY=admin123  # Password API (Bisa diganti)
+      # Ganti Provider ke POSTGRESQL
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_URL=postgresql://evolution:evolutionpassword@postgres:5432/evolution
+      - AUTHENTICATION_API_KEY=admin123
       - AUTHENTICATION_EXPOSE_IN_URL=true
-      - LOG_LEVEL=error
 
-  # --- 3. WHATSAPP BOT (LOGIC BARU) ---
+  # --- 4. WHATSAPP BOT ---
   faq-bot:
     build: .
     container_name: faq_bot_wa
@@ -41,17 +57,16 @@ services:
       - "8005:8000"
     depends_on:
       - chroma-server
-      - evolution-api # Tunggu Evolution nyala
+      - evolution-api
     env_file: .env
     environment:
       - CHROMA_HOST=chroma-server
       - CHROMA_PORT=8000
-      # URL Internal Container (panggil nama service 'evolution-api' port 8081)
       - EVO_BASE_URL=http://evolution-api:8081
       - EVO_API_KEY=admin123
     command: uvicorn bot_wa:app --host 0.0.0.0 --port 8000
 
-  # --- 4. USER APP (TIDAK BERUBAH) ---
+  # --- 5. USER APP (TIDAK BERUBAH) ---
   faq-user:
     build: .
     container_name: faq_user_app
@@ -70,7 +85,7 @@ services:
       - CHROMA_PORT=8000
     command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
 
-  # --- 5. ADMIN APP (TIDAK BERUBAH) ---
+  # --- 6. ADMIN APP (TIDAK BERUBAH) ---
   faq-admin:
     build: .
     container_name: faq_admin_app
@@ -89,7 +104,7 @@ services:
       - CHROMA_PORT=8000
     command: streamlit run admin.py --server.port=8502 --server.address=0.0.0.0
 
-  # --- 6. FRONTEND V2 (TIDAK BERUBAH) ---
+  # --- 7. FRONTEND V2 (TIDAK BERUBAH) ---
   faq-web-v2:
     build: .
     container_name: faq_web_v2

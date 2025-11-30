@@ -253,18 +253,3 @@ def home():
 if __name__ == "__main__":
     # Port 8000 sesuai docker-compose
     uvicorn.run("bot_wa:app", host="0.0.0.0", port=8000)
-```
-
-### Penjelasan Bagian yang "Hilang" Tadi
-Bagian ini yang membuat script terlihat lebih panjang di versi ini dibanding draft sebelumnya, tapi ini penting untuk request **"Reply kalau ditag"**:
-
-```python
-            # 5. Cek Mention (LOGIKA YANG SAYA KEMBALIKAN)
-            has_mention = False
-            if is_group:
-                # Di Evolution, mention ada di dalam extendedTextMessage > contextInfo > mentionedJid
-                context_info = msg.get("message", {}).get("extendedTextMessage", {}).get("contextInfo", {})
-                mentioned_jids = context_info.get("mentionedJid", [])
-                
-                if mentioned_jids:
-                    has_mention = True
