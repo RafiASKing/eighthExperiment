@@ -3,81 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Siloam Smart Search</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>body { font-family: 'Inter', sans-serif; }</style>
+    <title>Siloam Knowledge Base</title>
+    <!-- Link ke CSS yang baru kita buat -->
+    <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="bg-gray-50 text-gray-800 min-h-screen">
+<body>
 
-    <div class="bg-white border-b sticky top-0 z-10">
-        <div class="max-w-2xl mx-auto px-4 py-3 flex justify-between items-center">
-            <div class="flex items-center gap-2">
-                <span class="text-2xl">🏥</span>
-                <span class="font-bold text-lg tracking-tight">Knowledge Base</span>
-            </div>
-            <span class="bg-blue-100 text-blue-800 text-xs font-semibold px-2 py-1 rounded">V2.0 Faster</span>
-        </div>
-    </div>
+    <div class="container">
+        <h1>🏥 Siloam Knowledge Base</h1>
+        <p class="subtitle">Fast Cognitive Search System (V2)</p>
 
-    <div class="max-w-2xl mx-auto px-4 mt-8">
-        <form action="/search" method="get">
-            <div class="relative">
-                <input type="text" name="q" value="{{ query if query else '' }}" 
-                       class="w-full p-4 pl-5 rounded-xl border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-lg"
-                       placeholder="Cari kendala (contoh: cara login, printer error)..." autofocus autocomplete="off">
-                <button type="submit" class="absolute right-2 top-2 bottom-2 bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-lg font-medium transition">
-                    Cari
-                </button>
-            </div>
+        <!-- SEARCH FORM -->
+        <form action="/" method="get" class="search-form">
+            <input type="text" name="q" class="search-input" 
+                   placeholder="Ketik kendala (cth: Gagal retur, cara login nurse)..." 
+                   value="{{ query }}" autofocus required>
+            
+            <select name="tag" class="filter-select">
+                {% for t in all_tags %}
+                    <option value="{{ t }}" {% if t == current_tag %}selected{% endif %}>
+                        {{ t }}
+                    </option>
+                {% endfor %}
+            </select>
+
+            <button type="submit" class="search-btn">Cari</button>
         </form>
-        {% if not query %}
-        <p class="text-center text-gray-400 text-sm mt-4">Powered by Gemini AI Embedding</p>
-        {% endif %}
-    </div>
 
-    <div class="max-w-2xl mx-auto px-4 mt-6 pb-12">
-        {% if results is not none %}
-            {% if results %}
-                <p class="text-sm text-gray-500 mb-4">Menampilkan {{ results|length }} hasil terbaik:</p>
-                <div class="space-y-4">
-                    {% for item in results %}
-                    <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition group cursor-pointer" onclick="alert('Demo: Klik detail akan membuka halaman penuh.')">
-                        <div class="flex justify-between items-start mb-2">
-                            <span class="px-2 py-1 rounded text-xs font-bold text-white uppercase" style="background-color: {{ item.color }};">
-                                {{ item.tag }}
-                            </span>
-                            <span class="text-xs font-medium {{ 'text-green-600' if item.score > 70 else 'text-orange-600' }}">
-                                {{ item.score }}% Match
-                            </span>
-                        </div>
-                        <h3 class="text-lg font-bold text-gray-900 group-hover:text-blue-600 mb-2 leading-tight">
-                            {{ item.judul }}
-                        </h3>
-                        <p class="text-gray-600 text-sm leading-relaxed">
-                            {{ item.snippet }}
-                        </p>
-                        {% if item.path_gambar and item.path_gambar != 'none' %}
-                        <div class="mt-3 flex items-center gap-1 text-xs text-gray-500">
-                            <span>🖼️ Ada lampiran gambar</span>
-                        </div>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </div>
-            {% else %}
-                <div class="text-center py-10">
-                    <div class="text-5xl mb-3">🧐</div>
-                    <h3 class="text-gray-900 font-bold text-lg">Belum ada solusi di database</h3>
-                    <p class="text-gray-500 text-sm mb-6">Sistem telah mencatat pencarian ini. Butuh jawaban sekarang?</p>
-                    
-                    <a href="https://wa.me/6289635225253?text=Halo%20Admin,%20saya%20cari%20solusi%20tentang%20{{ query }}%20tapi%20tidak%20ketemu." 
-                       target="_blank"
-                       class="inline-flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-full transition transform hover:scale-105 shadow-lg">
-                        <span>📱 Chat IT Support (WhatsApp)</span>
-                    </a>
+        <!-- RESULTS SECTION -->
+        <div class="results">
+            {% if query and not results %}
+                <div style="text-align: center; padding: 40px; color: #666;">
+                    <h3>❌ Tidak ditemukan hasil relevan</h3>
+                    <p>Coba gunakan kata kunci yang lebih umum.</p>
                 </div>
             {% endif %}
+
+            {% for item in results %}
+                <!-- INI BAGIAN ACCORDION (GULUNGAN) -->
+                <details>
+                    <summary>
+                        <div class="summary-content">
+                            <!-- Badge Warna -->
+                            <span class="badge" style="background-color: {{ item.badge_color }}">
+                                {{ item.tag }}
+                            </span>
+                            <!-- Judul -->
+                            <span>{{ item.judul }}</span>
+                        </div>
+                        
+                        <!-- Score Visual -->
+                        <span class="score-badge {{ item.score_class }}">
+                            {{ item.score }}% Relevan
+                        </span>
+                    </summary>
+
+                    <!-- ISI KONTEN (Saat diklik baru kebuka) -->
+                    <div class="faq-content">
+                        <!-- render HTML safe (gambar & format teks sudah diproses di backend) -->
+                        {{ item.html_content | safe }}
+                        
+                        {% if item.sumber_url and item.sumber_url|length > 3 %}
+                            <br>
+                            <a href="{{ item.sumber_url }}" target="_blank" class="source-link">
+                                🔗 Buka Sumber Referensi
+                            </a>
+                        {% endif %}
+                    </div>
+                </details>
+            {% endfor %}
+        </div>
+
+        {% if not query %}
+            <div style="text-align: center; color: #aaa; margin-top: 50px;">
+                <p>👋 Silakan ketik kata kunci untuk mulai mencari.</p>
+            </div>
         {% endif %}
     </div>
 

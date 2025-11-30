@@ -1,0 +1,225 @@
+/* === BASE LAYOUT === */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #f8f9fa;
+    color: #212529;
+    margin: 0;
+    padding: 20px;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    background: white;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+/* === HEADER & FORM === */
+h1 {
+    text-align: center;
+    color: #2c3e50;
+    margin-bottom: 5px;
+}
+p.subtitle {
+    text-align: center;
+    color: #6c757d;
+    font-size: 0.9em;
+    margin-bottom: 30px;
+}
+
+.search-form {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+}
+
+.search-input {
+    flex: 3;
+    padding: 12px;
+    border: 1px solid #ced4da;
+    border-radius: 8px;
+    font-size: 16px;
+    transition: border-color 0.2s;
+}
+.search-input:focus {
+    border-color: #FF4B4B;
+    outline: none;
+}
+
+.filter-select {
+    flex: 1;
+    padding: 12px;
+    border: 1px solid #ced4da;
+    border-radius: 8px;
+    background-color: white;
+    font-size: 14px;
+    min-width: 150px;
+}
+
+.search-btn {
+    background-color: #FF4B4B;
+    color: white;
+    border: none;
+    padding: 0 25px;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.search-btn:hover {
+    background-color: #d43f3f;
+}
+
+/* === RESULTS LIST (ACCORDION) === */
+details {
+    margin-bottom: 12px;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    overflow: hidden;
+    background: white;
+    transition: box-shadow 0.2s;
+}
+
+details:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+details[open] {
+    border-color: #dee2e6;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* HEADER ACCORDION */
+summary {
+    padding: 15px;
+    cursor: pointer;
+    list-style: none; /* Hide default triangle */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 500;
+    background-color: #fff;
+}
+
+summary::-webkit-details-marker {
+    display: none;
+}
+
+.summary-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+}
+
+/* BADGES & SCORE */
+.badge {
+    padding: 4px 10px;
+    border-radius: 20px;
+    color: white;
+    font-size: 0.75em;
+    font-weight: bold;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.score-badge {
+    font-size: 0.8em;
+    font-weight: bold;
+    padding: 4px 8px;
+    border-radius: 6px;
+    margin-left: 10px;
+}
+.score-high { color: #155724; background-color: #d4edda; } /* Hijau */
+.score-med { color: #856404; background-color: #fff3cd; }  /* Kuning */
+.score-low { color: #721c24; background-color: #f8d7da; }  /* Merah */
+
+/* CONTENT EXPANDED */
+.faq-content {
+    padding: 20px;
+    border-top: 1px solid #e9ecef;
+    background-color: #fafafa;
+    font-size: 15px;
+    color: #333;
+}
+
+/* FORMATTING TEXT INSIDE */
+.faq-content ul, .faq-content ol {
+    padding-left: 20px;
+    margin: 10px 0;
+}
+.faq-content li {
+    margin-bottom: 5px;
+}
+.faq-content strong {
+    color: #2c3e50;
+}
+
+/* IMAGES */
+.img-container {
+    margin: 15px 0;
+    text-align: center;
+}
+.img-container img {
+    max-width: 100%;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    cursor: zoom-in;
+    transition: transform 0.2s;
+}
+.img-container img:hover {
+    transform: scale(1.01);
+}
+.img-caption {
+    display: block;
+    font-size: 0.85em;
+    color: #666;
+    margin-top: 5px;
+    font-style: italic;
+}
+
+/* GALLERY GRID (FALLBACK) */
+.gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    margin-top: 15px;
+}
+.img-card img {
+    width: 100%;
+    height: 100px;
+    object-fit: cover;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+/* MOBILE RESPONSIVE */
+@media (max-width: 600px) {
+    .container { padding: 15px; }
+    .search-form { flex-direction: column; }
+    .search-btn { width: 100%; padding: 12px; }
+    .summary-content { flex-direction: column; align-items: flex-start; gap: 5px;}
+    .score-badge { position: absolute; top: 15px; right: 15px; }
+    summary { position: relative; }
+}
+
+/* LINK SOURCE */
+.source-link {
+    display: inline-block;
+    margin-top: 15px;
+    padding: 8px 12px;
+    background-color: #e9ecef;
+    color: #007bff;
+    text-decoration: none;
+    border-radius: 5px;
+    font-size: 0.9em;
+}
+.source-link:hover {
+    background-color: #dee2e6;
+    text-decoration: underline;
+}

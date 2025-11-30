@@ -463,6 +463,20 @@ Ini membuat jawaban kamu ke juri soal "Scalability" jadi valid.
 
 
 
+<dokumentasi_perjalanan_pengembangan_setelahnya_lagi3>
+
+</dokumentasi_perjalanan_pengembangan_setelahnya_lagi3>
+
+
+
+
+<dokumentasi_perjalanan_pengembangan_setelahnya_lagi4>
+
+</dokumentasi_perjalanan_pengembangan_setelahnya_lagi4>
+
+
+
+
 
 </next_pengembangan>
 Fixing masalah write db, aku masih bingung mau ngelakuin yang disuruh bagian "dokumentasi_perjalanan_pengembangan_setelahnya_lagi" apa tidak?

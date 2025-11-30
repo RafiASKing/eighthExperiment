@@ -234,51 +234,114 @@ with tab3:
                 st.markdown(f"**Path Gambar Saat Ini:** `{row['Gambar']}`")
                 e_new = st.file_uploader("Timpa Gambar Baru (Opsional)", accept_multiple_files=True)
                 
-                c_up, c_del = st.columns([1, 1])
+                st.divider() # Garis pemisah biar rapi
                 
-                if c_up.form_submit_button("💾 UPDATE DATA"):
+                # --- PERUBAHAN DI SINI ---
+                # Kita buat layout 3 kolom: 
+                # Kolom 1 (Besar): Tombol Update
+                # Kolom 2 (Kecil): Spacer (kosong)
+                # Kolom 3 (Sedang): Tombol Hapus
+                c_up, c_space, c_del = st.columns([4, 0.5, 2])
+                
+                with c_up:
+                    # UPDATE jadi PRIMARY (Warna #FF4B4B/Orange sesuai config)
+                    # Biar user "terpancing" klik yang ini
+                    is_update = st.form_submit_button("💾 UPDATE DATA", type="primary", use_container_width=True)
+                
+                with c_del:
+                    # HAPUS jadi SECONDARY (Abu-abu/Putih)
+                    # Biar gak mencolok & mengurangi resiko salah klik
+                    is_delete = st.form_submit_button("🗑️ Hapus Permanen", type="secondary", use_container_width=True)
+                
+                # --- LOGIC TOMBOL ---
+                
+                if is_update:
                     p = row['Gambar']
                     if e_new: 
                         p = utils.save_uploaded_images(e_new, e_jud, e_tag)
                     
                     database.upsert_faq(sel_id, e_tag, e_jud, e_jaw, e_key, p, e_src)
-                    st.toast("Data Updated!", icon="✅")
+                    st.toast("Data Berhasil Diupdate!", icon="✅")
                     
-                    # === [2] CLEAR CACHE (WAJIB) ===
+                    # Clear Cache & Rerun
                     database.get_all_data_as_df.clear()
-                    
                     time.sleep(1)
                     st.rerun()
                 
-                if c_del.form_submit_button("🗑️ HAPUS PERMANEN", type="primary"):
+                if is_delete:
                     database.delete_faq(sel_id)
-                    st.toast("Data & Gambar Dihapus.", icon="🗑️")
+                    st.toast("Data & Gambar Telah Dihapus.", icon="🗑️")
                     
-                    # === [3] CLEAR CACHE (WAJIB) ===
+                    # Clear Cache & Rerun
                     database.get_all_data_as_df.clear()
-                    
                     time.sleep(1)
                     st.rerun()
 
 # === TAB 4: CONFIG ===
 with tab4:
     st.subheader("⚙️ Konfigurasi Tag")
+    
+    # Tampilkan Tabel Config Saat Ini
     flat = [{"Tag":k, "Warna":v.get("color",""), "Sinonim":v.get("desc","")} for k,v in tags_map.items()]
     st.dataframe(pd.DataFrame(flat), use_container_width=True, hide_index=True)
     
-    with st.expander("➕ Tambah / Update Tag (fitur edit/hapus tag masih perlu manual via file config)"):
+    st.divider()
+
+    # --- BAGIAN 1: TAMBAH / EDIT ---
+    with st.expander("➕ Tambah / Update Tag", expanded=True):
         with st.form("conf_f", clear_on_submit=True):
             c1, c2 = st.columns(2)
-            with c1: n_name = st.text_input("Nama Tag (ex: ED)")
+            with c1: n_name = st.text_input("Nama Tag (ex: ED)", help="Jika nama sama dengan yg ada, akan mengupdate data.")
             with c2: n_col = st.selectbox("Warna Badge", list(utils.COLOR_PALETTE.keys()))
-            n_desc = st.text_input("Sinonim / Kepanjangan Singkatan", placeholder="ex: Emergency, Poli, Medical Record, Hemodialysis")
+            n_desc = st.text_input("Sinonim / Kepanjangan", placeholder="ex: Emergency, Poli, Medical Record")
             
-            if st.form_submit_button("Simpan"):
+            if st.form_submit_button("Simpan Konfigurasi"):
                 if n_name:
+                    # Validasi sederhana biar gak kosong
                     hex_c = utils.COLOR_PALETTE[n_col]["hex"]
                     tags_map[n_name] = {"color": hex_c, "desc": n_desc}
                     utils.save_tags_config(tags_map)
-                    st.toast("Konfigurasi Tersimpan!"); time.sleep(1); st.rerun()
+                    st.toast(f"Tag '{n_name}' berhasil disimpan!", icon="✅")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("Nama Tag wajib diisi.")
+
+    # --- BAGIAN 2: HAPUS TAG (REQUEST KAMU) ---
+    with st.expander("🗑️ Hapus Tag (Zona Bahaya)", expanded=False):
+        st.markdown("### Hapus Tag dari Sistem")
+        
+        # Dropdown pilih tag yg mau dihapus
+        del_tag = st.selectbox("Pilih Tag untuk dihapus", list(tags_map.keys()), key="del_tag_sel")
+        
+        # --- SAFETY CHECK: Cek apakah tag ini masih dipakai di DB? ---
+        # Kita ambil data DF yg sudah dicache di Tab 1/3
+        df_check = database.get_all_data_as_df()
+        if not df_check.empty:
+            count_usage = len(df_check[df_check['Tag'] == del_tag])
+        else:
+            count_usage = 0
+            
+        # Tampilkan Warning sesuai kondisi
+        if count_usage > 0:
+            st.error(f"⚠️ **PERINGATAN KERAS:** Tag `{del_tag}` saat ini masih digunakan oleh **{count_usage} Dokumen** FaQ!")
+            st.markdown("""
+            **Saran:** Sebaiknya edit dulu dokumen tersebut di Tab 'Edit/Delete FaQ' dan ganti tag-nya sebelum menghapus tag ini.
+            Jika tetap dihapus, dokumen lama akan kehilangan warna badge (menjadi abu-abu/default).
+            """)
+        else:
+            st.success(f"✅ Aman: Tidak ada dokumen aktif yang menggunakan tag `{del_tag}`.")
+
+        # Tombol Hapus dengan konfirmasi visual
+        c_del_warn, c_del_btn = st.columns([3, 1])
+        with c_del_btn:
+            if st.button("🔥 Hapus Tag Ini", type="primary", use_container_width=True):
+                if del_tag in tags_map:
+                    del tags_map[del_tag]
+                    utils.save_tags_config(tags_map)
+                    st.toast(f"Tag '{del_tag}' telah dihapus permanen.", icon="🗑️")
+                    time.sleep(1)
+                    st.rerun()
 
 # === TAB 5: ANALYTICS (FEEDBACK LOOP) ===
 with tab5:
