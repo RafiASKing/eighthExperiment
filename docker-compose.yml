@@ -45,21 +45,20 @@ services:
       - ./evolution_instances:/evolution/instances
       - ./evolution_store:/evolution/store
     environment:
+      # --- BASIC CONFIG ---
       - SERVER_PORT=8081
       - SERVER_URL=http://43.218.92.10:8081
       - AUTHENTICATION_API_KEY=admin123
       - AUTHENTICATION_EXPOSE_IN_URL=true
-      # --- KONFIGURASI DATABASE YANG DIPERKUAT ---
+      
+      # --- DATABASE CONFIG (SIMPLIFIED) ---
+      # Kita paksa hanya pakai DATABASE_URL. Hapus DB_HOST, DB_USER, dll biar gak konflik.
       - DATABASE_PROVIDER=postgresql
-      # URL Lengkap
-      - DATABASE_URL=postgresql://evolution:evolutionpassword@faq_postgres:5432/evolution
-      # Variabel Terpisah (Agar script internal tidak default ke localhost)
-      - DB_TYPE=postgres
-      - DB_HOST=faq_postgres
-      - DB_PORT=5432
-      - DB_USER=evolution
-      - DB_PASS=evolutionpassword
-      - DB_NAME=evolution
+      - DATABASE_URL=postgresql://evolution:evolutionpassword@faq_postgres:5432/evolution?schema=public
+      
+      # --- LOGGING ---
+      # Biar kalau error ketauan detailnya
+      - LOG_LEVEL=warn
 
   # --- 4. WHATSAPP BOT ---
   faq-bot:
