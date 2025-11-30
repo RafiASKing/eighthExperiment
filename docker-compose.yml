@@ -15,24 +15,24 @@ services:
       - ANONYMIZED_TELEMETRY=False
 
 # --- 2. POSTGRES DATABASE ---
-postgres:
+  postgres:
     image: postgres:15-alpine
     container_name: faq_postgres
     restart: always
     environment:
-      POSTGRES_USER: postgres          # <--- Ubah jadi postgres
-      POSTGRES_PASSWORD: adminpassword # <--- Password simple
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: adminpassword
       POSTGRES_DB: evolution
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"] # <--- Cek user postgres
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   # --- 3. EVOLUTION API (VERSI BARU v2.2.2) ---
-evolution-api:
+  evolution-api:
     image: atendai/evolution-api:v2.2.2
     container_name: faq_evolution
     restart: always
@@ -50,10 +50,9 @@ evolution-api:
       - AUTHENTICATION_API_KEY=admin123
       - AUTHENTICATION_EXPOSE_IN_URL=true
       - DATABASE_PROVIDER=postgresql
-      # URL pake user postgres
       - DATABASE_URL=postgresql://postgres:adminpassword@faq_postgres:5432/evolution?schema=public
-      # Biar kalau error ketauan detailnya
       - LOG_LEVEL=warn
+
 
   # --- 4. WHATSAPP BOT ---
   faq-bot:
