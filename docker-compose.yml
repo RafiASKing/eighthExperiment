@@ -26,10 +26,11 @@ services:
       - ./evolution_store:/evolution/store
     environment:
       - SERVER_PORT=8081
-      - SERVER_URL=http://localhost:8081
+      - SERVER_URL=http://43.218.92.10:8081
       - DATABASE_PROVIDER=sqlite
       - AUTHENTICATION_API_KEY=admin123  # Password API (Bisa diganti)
       - AUTHENTICATION_EXPOSE_IN_URL=true
+      - LOG_LEVEL=error
 
   # --- 3. WHATSAPP BOT (LOGIC BARU) ---
   faq-bot:
