@@ -5,242 +5,236 @@ import re
 import base64
 from fastapi import FastAPI, Request, BackgroundTasks
 from dotenv import load_dotenv
-from src import database, utils
+from src import database
 
 # Load Environment Variables
 load_dotenv()
 
 app = FastAPI()
 
-# Konfigurasi WAHA (Diambil dari docker-compose)
-WAHA_BASE_URL = os.getenv("WAHA_BASE_URL", "http://waha:3000")
+# Konfigurasi Evolution API
+# Default URL container internal. Ganti instance jika perlu.
+EVO_BASE_URL = os.getenv("EVO_BASE_URL", "http://evolution-api:8081")
+EVO_API_KEY = os.getenv("EVO_API_KEY", "admin123")
+INSTANCE_NAME = "faq_bot" 
 
 def get_base64_image(file_path):
     """
-    Mengubah file gambar lokal menjadi Base64 string
-    agar bisa dikirim lewat JSON ke WAHA (antar container).
+    Encode gambar lokal ke Base64 Murni.
+    Evolution API lebih simpel, tidak butuh header 'data:image...'
     """
     try:
-        # Bersihkan path (kadang ada ./images/...)
         clean_path = file_path.replace("\\", "/")
-        if not os.path.exists(clean_path):
-            print(f"❌ Gambar tidak ditemukan: {clean_path}")
-            return None, None
-            
+        if not os.path.exists(clean_path): return None, None
+        
         with open(clean_path, "rb") as image_file:
             encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
             
-        # Tentukan mime type sederhana
-        mime_type = "image/jpeg"
-        if clean_path.lower().endswith(".png"):
-            mime_type = "image/png"
-            
-        # Format Data URI: "data:image/png;base64,....."
-        return f"data:{mime_type};base64,{encoded_string}", os.path.basename(clean_path)
+        # Evolution butuh filename dan base64 string saja
+        return encoded_string, os.path.basename(clean_path)
     except Exception as e:
         print(f"❌ Gagal encode gambar: {e}")
         return None, None
 
-def send_waha_text(chat_id, text):
-    """Kirim Pesan Teks via WAHA"""
-    url = f"{WAHA_BASE_URL}/api/sendText"
+def send_evo_text(remote_jid, text):
+    """Kirim Teks via Evolution API"""
+    url = f"{EVO_BASE_URL}/message/sendText/{INSTANCE_NAME}"
+    headers = {"apikey": EVO_API_KEY, "Content-Type": "application/json"}
+    
+    # Pastikan nomor formatnya benar (hapus @s.whatsapp.net jika ada, tapi Evolution biasanya pintar)
+    if "@" in remote_jid: remote_jid = remote_jid.split("@")[0]
+
     payload = {
-        "chatId": chat_id,
-        "text": text,
-        "session": "default"
+        "number": remote_jid, 
+        "text": text
     }
     try:
-        r = requests.post(url, json=payload)
-        # print(f"📤 Sent Text to {chat_id}: {r.status_code}")
+        r = requests.post(url, json=payload, headers=headers)
+        # print(f"📤 Sent Text: {r.status_code}")
     except Exception as e:
         print(f"❌ Error Send Text: {e}")
 
-def send_waha_image(chat_id, file_path, caption=""):
-    """Kirim Gambar via WAHA (Base64 Mode)"""
-    url = f"{WAHA_BASE_URL}/api/sendImage"
+def send_evo_image(remote_jid, file_path, caption=""):
+    """Kirim Gambar via Evolution API"""
+    url = f"{EVO_BASE_URL}/message/sendMedia/{INSTANCE_NAME}"
+    headers = {"apikey": EVO_API_KEY, "Content-Type": "application/json"}
     
-    # Encode gambar dulu
-    data_uri, filename = get_base64_image(file_path)
-    
-    if not data_uri:
-        return # Skip jika gambar rusak/hilang
+    if "@" in remote_jid: remote_jid = remote_jid.split("@")[0]
+
+    base64_str, filename = get_base64_image(file_path)
+    if not base64_str: return
 
     payload = {
-        "chatId": chat_id,
-        "file": {
-            "mimetype": data_uri.split(";")[0].split(":")[1],
-            "filename": filename,
-            "data": data_uri.split(",")[1] # Ambil base64-nya saja
-        },
-        "caption": caption,
-        "session": "default"
+        "number": remote_jid,
+        "medias": [{
+            "type": "image",
+            "caption": caption,
+            "data": base64_str,
+            "fileName": filename
+        }]
     }
     try:
-        r = requests.post(url, json=payload)
-        print(f"🖼️ Sent Image to {chat_id}: {r.status_code}")
+        r = requests.post(url, json=payload, headers=headers)
+        print(f"🖼️ Sent Image: {r.status_code}")
     except Exception as e:
         print(f"❌ Error Send Image: {e}")
 
-def process_logic(chat_id, sender_name, message_body, is_group, has_mention):
+def process_logic(remote_jid, sender_name, message_body, is_group, has_mention):
     """
     Otak Bot:
-    1. Cek apakah perlu merespon (DM / Mention).
-    2. Cari di Database.
-    3. Format Text & Gambar.
-    4. Kirim.
+    - Balas jika Chat Pribadi (PC)
+    - Balas jika Grup DAN (Dimention ATAU ada keyword @faq)
     """
     
-    # === 1. LOGIKA TRIGGER (PENTING!) ===
+    # 1. LOGIKA TRIGGER
     should_reply = False
     
     if not is_group:
-        # Kalau Private Chat (PC), SELALU balas
+        # PC: Selalu balas
         should_reply = True
     else:
-        # Kalau Group, HANYA balas jika di-mention ATAU ada keyword trigger
+        # Group: Cek trigger
         if has_mention:
             should_reply = True
         elif "@faq" in message_body.lower():
             should_reply = True
             
-    if not should_reply:
-        return # Abaikan chat ini
+    if not should_reply: return
 
-    # Bersihkan pesan dari @mention atau @faq
-    # Biar query ke DB bersih
+    # 2. CLEANING QUERY
+    # Hapus @faq dan mention format WA (@628123...) agar search bersih
     clean_query = message_body.replace("@faq", "").strip()
-    # (Opsional) Hapus mention tag WA style @628xxx
     clean_query = re.sub(r'@\d+', '', clean_query).strip()
 
     if not clean_query:
-        send_waha_text(chat_id, f"Halo kak {sender_name}, ada yang bisa dibantu? Ketik masalahnya ya.")
+        send_evo_text(remote_jid, f"Halo {sender_name}, silakan ketik pertanyaanmu.")
         return
 
-    print(f"🔍 Searching: '{clean_query}' for {chat_id}")
+    print(f"🔍 Searching: '{clean_query}' (From: {sender_name})")
 
-    # === 2. CARI DI DATABASE ===
-    # Kita cari Top 1 saja biar bot fokus
+    # 3. SEARCH DATABASE
     results = database.search_faq_for_bot(clean_query, filter_tag="Semua Modul")
     
     reply_text = ""
     list_gambar_to_send = []
 
     if not results or not results['ids'][0]:
-        # Tidak ketemu
-        reply_text = f"🙏 Maaf kak, saya belum punya jawaban untuk: *'{clean_query}'*.\nCoba kata kunci lain atau hubungi Admin."
-        send_waha_text(chat_id, reply_text)
+        reply_text = f"🙏 Maaf {sender_name}, tidak ditemukan jawaban untuk: *'{clean_query}'*."
+        send_evo_text(remote_jid, reply_text)
         return
     else:
-        # KETEMU!
+        # Ambil Top 1
         meta = results['metadatas'][0][0]
         dist = results['distances'][0][0]
         score = max(0, (1 - dist) * 100)
 
-        # Cek Score Kelayakan
-        if score < 60: # Kalau relevansi rendah (bisa diatur)
-             reply_text = f"🤔 Kurang yakin, tapi mungkin ini maksudnya (Relevansi {score:.0f}%):\n\n"
+        # Ambang batas kepercayaan (bisa diatur)
+        if score < 60:
+             reply_text = f"🤔 Kurang yakin ({score:.0f}%):\n\n"
         else:
-             reply_text = f"🤖 *FAQ Assistant* (Akurasi: {score:.0f}%)\n\n"
+             reply_text = f"🤖 *FAQ Assistant* ({score:.0f}%)\n\n"
 
         judul = meta['judul']
         jawaban_raw = meta['jawaban_tampil']
         
-        # === 3. PROCESSING GAMBAR (REQUEST KAMU) ===
-        # Kita scan dulu apakah ada [GAMBAR X]
-        
-        # A. Ambil path gambar asli dari DB
+        # 4. PARSING GAMBAR (Fitur Request Kamu)
+        # Ambil path gambar dari database
         raw_paths = meta.get('path_gambar', 'none')
         img_db_list = []
         if raw_paths and str(raw_paths).lower() != 'none':
-             # Split path (./images/ED/bla.png)
              paths = raw_paths.split(';')
              for p in paths:
-                 clean_p = p.strip().replace("\\", "/")
-                 img_db_list.append(clean_p)
+                 # Normalisasi path windows/linux
+                 img_db_list.append(p.strip().replace("\\", "/"))
 
-        # B. Ganti Teks [GAMBAR X] -> (Lihat Gambar X)
-        # Fungsi regex replacer
+        # Fungsi ganti teks [GAMBAR 1] -> (Lihat Gambar)
         def replace_tag(match):
             try:
-                # match.group(1) adalah angkanya (misal "1")
+                # match.group(1) itu angkanya (1, 2, dst)
                 idx = int(match.group(1)) - 1
                 if 0 <= idx < len(img_db_list):
-                    # Masukkan ke antrian kirim
                     list_gambar_to_send.append(img_db_list[idx])
-                    return f"*( 👇 Lihat Gambar {idx+1} di bawah )*"
-                else:
-                    return ""
+                    return f"*( 👇 Lihat Gambar {idx+1} )*"
+                return ""
             except: return ""
 
-        # Lakukan replacement di teks jawaban
+        # Lakukan penggantian teks
         jawaban_processed = re.sub(r'\[GAMBAR\s*(\d+)\]', replace_tag, jawaban_raw, flags=re.IGNORECASE)
         
-        # C. Jika ada gambar tapi tidak ada tag di teks, kirim semua sebagai lampiran
+        # Fallback: Jika ada gambar tapi tidak ditulis [GAMBAR X] di teks, kirim semua
         if not list_gambar_to_send and img_db_list:
             list_gambar_to_send = img_db_list
 
-        # Susun Pesan Akhir
-        reply_text += f"❓ *{judul}*\n"
-        reply_text += f"✅ {jawaban_processed}\n"
-        
-        if meta.get('sumber_url') and len(meta.get('sumber_url')) > 3:
-            reply_text += f"\n🔗 {meta.get('sumber_url')}"
+        # Susun Pesan
+        reply_text += f"❓ *{judul}*\n✅ {jawaban_processed}\n"
+        if meta.get('sumber_url'): reply_text += f"\n🔗 {meta.get('sumber_url')}"
 
-        # === 4. KIRIM (TEKS DULU, BARU GAMBAR) ===
-        send_waha_text(chat_id, reply_text)
+        # 5. KIRIM HASIL
+        send_evo_text(remote_jid, reply_text)
         
-        # Kirim Gambar (Looping)
+        # Kirim Gambar Asli
         for i, img_path in enumerate(list_gambar_to_send):
-            # Cek path lokal container
-            # (Pastikan di docker-compose folder ./images sudah dimount ke /app/images)
-            send_waha_image(chat_id, img_path, caption=f"Gambar Pendukung #{i+1}")
-
+            send_evo_image(remote_jid, img_path, caption=f"Gambar #{i+1} untuk {judul}")
 
 @app.post("/webhook")
-async def waha_webhook(request: Request, background_tasks: BackgroundTasks):
+async def evolution_webhook(request: Request, background_tasks: BackgroundTasks):
     """
-    Webhook handler untuk WAHA.
-    Menerima event 'message' dari WAHA.
+    Webhook Handler - Menerima data dari Evolution API
     """
     try:
         body = await request.json()
         
-        # Struktur WAHA biasanya: { "event": "message", "payload": { ... } }
+        # Struktur Evolution: { "event": "...", "data": { ... } }
         event_type = body.get("event")
-        payload = body.get("payload", {})
+        data = body.get("data", {})
+        
+        # Kita hanya peduli kalau ada pesan masuk (messages.upsert)
+        if event_type == "messages.upsert":
+            msg = data
+            
+            # 1. Cek Pesan Diri Sendiri (Abaikan)
+            if msg.get("key", {}).get("fromMe"): return {"status": "ignored_self"}
+            
+            # 2. Ambil Nomor Pengirim (Remote JID)
+            remote_jid = msg.get("key", {}).get("remoteJid")
+            
+            # Abaikan status broadcast WhatsApp
+            if "status@broadcast" in remote_jid: return {"status": "ignored_status"}
 
-        # Pastikan ini event pesan baru (bukan status update/ack)
-        # 'message' atau 'message.upsert' tergantung versi WAHA, kita handle umum
-        if event_type == "message":
-            
-            # Abaikan pesan dari status broadcast
-            if payload.get("from") == "status@broadcast":
-                return {"status": "ignored_status"}
-            
-            # Abaikan pesan dari diri sendiri (Bot)
-            if payload.get("fromMe"):
-                return {"status": "ignored_self"}
+            # 3. Ambil Isi Pesan
+            message_body = ""
+            # Pesan Text Biasa
+            if "conversation" in msg.get("message", {}):
+                message_body = msg["message"]["conversation"]
+            # Pesan Text dengan Format (Bold/Reply/Mention)
+            elif "extendedTextMessage" in msg.get("message", {}):
+                message_body = msg["message"]["extendedTextMessage"].get("text", "")
+            # Kalau gambar caption
+            elif "imageMessage" in msg.get("message", {}):
+                message_body = msg["message"]["imageMessage"].get("caption", "")
 
-            # Ekstrak Data Penting
-            chat_id = payload.get("from") # ID Pengirim (bisa group id atau user id)
-            sender_name = payload.get("_data", {}).get("notifyName", "User")
-            message_body = payload.get("body", "")
+            sender_name = msg.get("pushName", "User")
             
-            # Cek Grup / Mention
-            # isGroup bisa boolean true/false atau undefined
-            is_group = "@g.us" in chat_id 
+            # 4. Cek Tipe Chat (Grup atau Pribadi)
+            is_group = "@g.us" in remote_jid
             
-            # Cek Mention (WAHA kasih list mentionedIds)
-            mentioned_ids = payload.get("mentionedIds", [])
-            # Cek apakah bot saya (nomor WA yang dipasang) ada di list mention?
-            # Cara gampang: kalau list mention gak kosong, anggap aja dimention (simplifikasi)
-            # Atau cek logic WAHA 'hasMention' kalau ada (tergantung versi)
-            has_mention = len(mentioned_ids) > 0 
+            # 5. Cek Mention (LOGIKA YANG SAYA KEMBALIKAN)
+            has_mention = False
+            if is_group:
+                # Di Evolution, mention ada di dalam extendedTextMessage > contextInfo > mentionedJid
+                context_info = msg.get("message", {}).get("extendedTextMessage", {}).get("contextInfo", {})
+                mentioned_jids = context_info.get("mentionedJid", [])
+                
+                # Jika list mentionedJid TIDAK kosong, berarti ada yang ditag.
+                # Asumsi: Kalau bot ada di grup dan ada tag, kemungkinan besar bot yang ditag
+                # (Karena kita gak bisa cek nomor sendiri secara dinamis tanpa API call tambahan)
+                if mentioned_jids:
+                    has_mention = True
 
-            # Jalankan logic di background biar webhook fast response
+            # Jalankan logika utama di background
             background_tasks.add_task(
                 process_logic, 
-                chat_id, 
+                remote_jid, 
                 sender_name, 
                 message_body, 
                 is_group, 
@@ -248,14 +242,29 @@ async def waha_webhook(request: Request, background_tasks: BackgroundTasks):
             )
             
         return {"status": "ok"}
-        
     except Exception as e:
         print(f"Webhook Error: {e}")
         return {"status": "error"}
 
 @app.get("/")
 def home():
-    return {"status": "WAHA Bot Running", "mode": "Direct Connection"}
+    return {"status": "Evolution Bot Running", "engine": "Evolution API v2"}
 
 if __name__ == "__main__":
+    # Port 8000 sesuai docker-compose
     uvicorn.run("bot_wa:app", host="0.0.0.0", port=8000)
+```
+
+### Penjelasan Bagian yang "Hilang" Tadi
+Bagian ini yang membuat script terlihat lebih panjang di versi ini dibanding draft sebelumnya, tapi ini penting untuk request **"Reply kalau ditag"**:
+
+```python
+            # 5. Cek Mention (LOGIKA YANG SAYA KEMBALIKAN)
+            has_mention = False
+            if is_group:
+                # Di Evolution, mention ada di dalam extendedTextMessage > contextInfo > mentionedJid
+                context_info = msg.get("message", {}).get("extendedTextMessage", {}).get("contextInfo", {})
+                mentioned_jids = context_info.get("mentionedJid", [])
+                
+                if mentioned_jids:
+                    has_mention = True

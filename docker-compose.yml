@@ -14,24 +14,24 @@ services:
       - IS_PERSISTENT=TRUE
       - ANONYMIZED_TELEMETRY=False
 
-  # --- 2. WAHA (WHATSAPP API) - BARU! ---
-  waha:
-    image: devlikepro/waha:latest
-    container_name: faq_waha
+  # --- 2. EVOLUTION API (PENGGANTI WAHA) ---
+  evolution-api:
+    image: atendai/evolution-api:v2.1.1
+    container_name: faq_evolution
     restart: always
     ports:
-      - "3000:3000"  # Dashboard WAHA bisa dibuka di localhost:3000
-    environment:
-      # Menggunakan engine WEBJS (paling stabil untuk fitur dasar)
-      - WHATSAPP_DEFAULT_ENGINE=WEBJS
-      - WHATSAPP_SWAGGER_USERNAME=admin
-      - WHATSAPP_SWAGGER_PASSWORD=admin
-      - WAHA_LOG_LEVEL=info
+      - "8081:8081" # Kita pakai port 8081 biar gak bentrok sama web_v2 (8080)
     volumes:
-      # Menyimpan sesi login WA agar tidak perlu scan QR ulang saat restart
-      - ./waha_data:/app/.waha
+      - ./evolution_instances:/evolution/instances
+      - ./evolution_store:/evolution/store
+    environment:
+      - SERVER_PORT=8081
+      - SERVER_URL=http://localhost:8081
+      - DATABASE_PROVIDER=sqlite
+      - AUTHENTICATION_API_KEY=admin123  # Password API (Bisa diganti)
+      - AUTHENTICATION_EXPOSE_IN_URL=true
 
-  # --- 3. WHATSAPP BOT (LOGIC PYTHON) - DIUPDATE ---
+  # --- 3. WHATSAPP BOT (LOGIC BARU) ---
   faq-bot:
     build: .
     container_name: faq_bot_wa
@@ -40,13 +40,14 @@ services:
       - "8005:8000"
     depends_on:
       - chroma-server
-      - waha  # Bot harus menunggu WAHA siap
+      - evolution-api # Tunggu Evolution nyala
     env_file: .env
     environment:
       - CHROMA_HOST=chroma-server
       - CHROMA_PORT=8000
-      - WAHA_BASE_URL=http://waha:3000 # URL internal antar container
-    # Kita tetap pakai uvicorn untuk webhook handler
+      # URL Internal Container (panggil nama service 'evolution-api' port 8081)
+      - EVO_BASE_URL=http://evolution-api:8081
+      - EVO_API_KEY=admin123
     command: uvicorn bot_wa:app --host 0.0.0.0 --port 8000
 
   # --- 4. USER APP (TIDAK BERUBAH) ---
