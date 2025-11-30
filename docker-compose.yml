@@ -34,7 +34,7 @@ services:
 
   # --- 3. EVOLUTION API ---
   evolution-api:
-    image: atendai/evolution-api:v2.2.2
+    image: atendai/evolution-api:latest
     container_name: faq_evolution
     restart: always
     ports:
