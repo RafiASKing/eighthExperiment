@@ -14,7 +14,7 @@ services:
       - IS_PERSISTENT=TRUE
       - ANONYMIZED_TELEMETRY=False
 
-  # --- 2. POSTGRES (NAME VOLUME BARU) ---
+  # --- 2. POSTGRES DATABASE ---
   postgres:
     image: postgres:15-alpine
     container_name: faq_postgres
@@ -24,15 +24,15 @@ services:
       POSTGRES_PASSWORD: adminpassword
       POSTGRES_DB: evolution
     volumes:
-      # GANTI NAMA FOLDER BIAR FRESH 100%
-      - ./postgres_data_fix:/var/lib/postgresql/data
+      # GANTI VOLUME KE V3 (Otomatis Reset Database)
+      - ./postgres_data_v3:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  # --- 3. EVOLUTION API (CONFIG LENGKAP) ---
+  # --- 3. EVOLUTION API ---
   evolution-api:
     image: atendai/evolution-api:v2.2.2
     container_name: faq_evolution
@@ -43,17 +43,16 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      # GANTI NAMA FOLDER BIAR FRESH 100%
-      - ./evolution_instances_fix:/evolution/instances
-      - ./evolution_store_fix:/evolution/store
+      # GANTI VOLUME KE V3 (Otomatis Reset Config)
+      - ./evolution_instances_v3:/evolution/instances
+      - ./evolution_store_v3:/evolution/store
     environment:
       - SERVER_PORT=8081
       - SERVER_URL=http://43.218.92.10:8081
       - AUTHENTICATION_API_KEY=admin123
       - AUTHENTICATION_EXPOSE_IN_URL=true
       
-      # --- DATABASE CONFIG (WAJIB LENGKAP) ---
-      # Kita suapi variabel satu per satu biar dia gak bingung
+      # --- DATABASE CONFIG (WAJIB LENGKAP JANGAN DIHAPUS) ---
       - DATABASE_PROVIDER=postgresql
       - DB_TYPE=postgres
       - DB_HOST=faq_postgres
@@ -61,6 +60,7 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=adminpassword
       - DB_NAME=evolution
+      # URL Lengkap sebagai cadangan
       - DATABASE_URL=postgresql://postgres:adminpassword@faq_postgres:5432/evolution?schema=public
       
       - LOG_LEVEL=warn
