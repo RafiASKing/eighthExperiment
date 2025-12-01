@@ -49,7 +49,7 @@ services:
       - CHROMA_HOST=chroma-server
       - CHROMA_PORT=8000
       - WA_BASE_URL=http://wppconnect:21465
-      - WA_SESSION_KEY=admin123
+      - WA_SESSION_KEY=THISISMYSECURETOKEN
     command: uvicorn bot_wa:app --host 0.0.0.0 --port 8000
   # --- 5. USER APP ---
   faq-user:
