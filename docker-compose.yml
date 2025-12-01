@@ -34,7 +34,7 @@ services:
 
   # --- 3. EVOLUTION API ---
 # --- 3. EVOLUTION API ---
-evolution-api:
+  evolution-api:
     container_name: faq_evolution
     depends_on:
       postgres:
