@@ -34,30 +34,45 @@ services:
 
   # --- 3. EVOLUTION API ---
 # --- 3. EVOLUTION API ---
-  evolution-api:
-    image: evoapicloud/evolution-api:latest
+evolution-api:
     container_name: faq_evolution
-    restart: always
-    ports:
-      - "8081:8081"
     depends_on:
       postgres:
         condition: service_healthy
-    volumes:
-      - ./evolution.env:/evolution/.env
-      - ./evolution_instances_v5:/evolution/instances
-      - ./evolution_store_v5:/evolution/store
+        required: true
     environment:
-      - SERVER_TYPE=http    # <--- ADD THIS HERE TOO
-      - DATABASE_URL=postgresql://postgres:adminpassword@faq_postgres:5432/evolution?schema=public
-      - DATABASE_PROVIDER=postgresql
-      - SERVER_PORT=8081
-      - SERVER_URL=http://localhost:8081
-      - AUTHENTICATION_API_KEY=admin123
-      - AUTHENTICATION_EXPOSE_IN_URL=true
-      - LOG_LEVEL=DEBUG
-    env_file:
-      - evolution.env
+      AUTHENTICATION_API_KEY: admin123
+      AUTHENTICATION_EXPOSE_IN_URL: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_URL: postgresql://postgres:adminpassword@faq_postgres:5432/evolution?schema=public
+      # GANTI LOG LEVEL JADI WARN BIAR GAK ERROR SEPERTI ISU GITHUB #1695
+      LOG_LEVEL: WARN
+      SERVER_PORT: "8081"
+      SERVER_TYPE: http
+      # --- BAGIAN PENTING: GANTI KE IP PUBLIC VPS ---
+      # Jangan localhost. Browser kamu gak bisa baca localhost server.
+      SERVER_URL: http://172.26.12.104:8081 
+    image: evoapicloud/evolution-api:v2.2.2
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 8081
+        published: "8081"
+        protocol: tcp
+    restart: always
+    volumes:
+      # Volume .env HAPUS AJA (Bikin konflik)
+      - type: bind
+        source: /home/ubuntu/eighthExperiment/evolution_instances_v5
+        target: /evolution/instances
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /home/ubuntu/eighthExperiment/evolution_store_v5
+        target: /evolution/store
+        bind:
+          create_host_path: true
 
   # --- 4. BOT WA ---
   faq-bot:
