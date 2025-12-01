@@ -130,16 +130,19 @@ async def wpp_webhook(request: Request, background_tasks: BackgroundTasks):
         body = await request.json()
         event = body.get("event")
         
-        # --- BUKA FILTER (BIAR SEMUA EVENT MUNCUL DI LOG) ---
+        # --- DEBUG LOGGING ---
         log(f"📩 [DEBUG EVENT] Masuk: {event}")
 
-        if event not in ["onMessage", "onAnyMessage"]:
+        # --- PERBAIKAN DI SINI ---
+        # Tambahkan 'onmessage' (huruf kecil) ke dalam list yang diterima
+        if event not in ["onMessage", "onAnyMessage", "onmessage"]:
+            # log(f"🚫 Event diabaikan karena bukan pesan: {event}")
             return {"status": "ignored_event"}
 
         data = body.get("data", {})
         
         if data.get("fromMe", False) is True:
-            log("🚫 Pesan dari diri sendiri")
+            # log("🚫 Pesan dari diri sendiri")
             return {"status": "ignored_self"}
 
         remote_jid = data.get("from") or data.get("chatId")
