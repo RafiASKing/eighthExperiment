@@ -18,7 +18,6 @@ app = FastAPI()
 
 # --- KONFIGURASI ---
 WA_BASE_URL = os.getenv("WA_BASE_URL", "http://wppconnect:21465")
-# Masukkan SECRET KEY (misal: THISISMYSECURETOKEN), nanti bot otomatis ubah jadi token
 WA_SECRET_KEY = os.getenv("WA_SESSION_KEY", "THISISMYSECURETOKEN") 
 WA_SESSION_NAME = "mysession"
 
@@ -44,18 +43,12 @@ def get_headers():
 def generate_token():
     global CURRENT_TOKEN
     try:
-        # Endpoint generate token menggunakan Secret Key
         url = f"{WA_BASE_URL}/api/{WA_SESSION_NAME}/{WA_SECRET_KEY}/generate-token"
         r = requests.post(url)
         if r.status_code == 200 or r.status_code == 201:
             resp = r.json()
-            # Ambil token dari respons
             token = resp.get("token") or resp.get("session") 
-            # (Tergantung versi WPP, kadang token ada di key berbeda)
-            
-            # WPPConnect versi baru return structure: {"status": "success", "token": "..."}
             if not token and "full" in resp:
-                 # Kadang return 'full': 'session:token'
                  token = resp["full"].split(":")[-1]
 
             if token:
@@ -88,12 +81,11 @@ def send_wpp_text(phone, message):
     url = f"{WA_BASE_URL}/api/{WA_SESSION_NAME}/send-message"
     payload = {"phone": phone, "message": message, "isGroup": False}
     try:
-        # Gunakan get_headers() agar selalu pakai token terbaru
         r = requests.post(url, json=payload, headers=get_headers())
         log(f"📤 Balas ke {phone}: {r.status_code}")
         if r.status_code == 401:
             log("🔄 Token Expired/Salah. Regenerating...")
-            generate_token() # Coba refresh token kalau gagal
+            generate_token()
     except Exception as e:
         log(f"❌ Error Kirim Text: {e}")
 
@@ -184,21 +176,20 @@ async def wpp_webhook(request: Request, background_tasks: BackgroundTasks):
         body = await request.json()
         event = body.get("event")
         
-        # --- DEBUG RAW JSON (KUNCI DIAGNOSA) ---
-        # Ini akan memunculkan SEMUA isi data yang dikirim WPPConnect
-        # Kalau masih error, copy log bagian ini dan kasih ke saya
-        log(f"📦 [RAW JSON]: {json.dumps(body)}")
+        # log(f"📦 [RAW JSON]: {json.dumps(body)}") # Bisa dimatikan kalau log kepenuhan
 
         if event not in ["onMessage", "onAnyMessage", "onmessage"]:
             return {"status": "ignored_event"}
 
-        data = body.get("data", {})
+        # --- PERBAIKAN UTAMA DI SINI ---
+        # Cek apakah 'data' ada. Jika tidak, pakai 'body' (root) sebagai data.
+        data = body.get("data")
+        if not data:
+            data = body # Fallback jika data message ada di root JSON
         
-        # Cek Data Diri Sendiri
         if data.get("fromMe", False) is True:
             return {"status": "ignored_self"}
 
-        # --- SMART PARSER (Mencari nomor HP di berbagai lokasi) ---
         remote_jid = data.get("from")
         if not remote_jid: remote_jid = data.get("chatId")
         if not remote_jid: remote_jid = data.get("sender", {}).get("id")
@@ -206,11 +197,10 @@ async def wpp_webhook(request: Request, background_tasks: BackgroundTasks):
         if not remote_jid or "status@broadcast" in str(remote_jid): 
             return {"status": "ignored_status"}
 
-        # --- SMART PARSER (Mencari isi pesan) ---
         message_body = data.get("body")
         if not message_body: message_body = data.get("content")
         if not message_body: message_body = data.get("caption")
-        if not message_body: message_body = "" # Hindari NoneType error
+        if not message_body: message_body = ""
 
         log(f"📨 [PESAN MASUK] Dari: {remote_jid} | Isi: {message_body}")
 
@@ -228,10 +218,7 @@ async def wpp_webhook(request: Request, background_tasks: BackgroundTasks):
 @app.on_event("startup")
 async def startup_event():
     log("🚀 Bot WA Start! Menyiapkan Token...")
-    # 1. Generate Token Dulu
     generate_token()
-    
-    # 2. Register Webhook
     try:
         requests.post(
             f"{WA_BASE_URL}/api/{WA_SESSION_NAME}/start-session",
