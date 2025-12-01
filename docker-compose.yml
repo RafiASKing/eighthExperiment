@@ -16,7 +16,7 @@ services:
   # --- 2. EVOLUTION API ---
   wppconnect:
     container_name: faq_wppconnect
-    image: wppconnect-team/wppconnect-server:latest
+    image: wppconnect/server:latest
     restart: always
     ports:
       - "21465:21465" # Port default WPPConnect
