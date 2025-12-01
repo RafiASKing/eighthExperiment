@@ -21,20 +21,22 @@ WA_BASE_URL = os.getenv("WA_BASE_URL", "http://wppconnect:21465")
 WA_SECRET_KEY = os.getenv("WA_SESSION_KEY", "THISISMYSECURETOKEN") 
 WA_SESSION_NAME = "mysession"
 
-# Variable Global untuk menyimpan Token Bearer
+# Variable Global
 CURRENT_TOKEN = None
+# --- UPDATE DI SINI: NOMOR BOT HARDCODED ---
+# Agar logika filter mention langsung jalan tanpa perlu fetch ke API
+MY_NUMBER = "6281311933544"
 
 # --- FUNGSI LOGGING ---
 def log(message):
     print(message, flush=True)
 
-# --- FUNGSI AUTH OTOMATIS ---
+# --- FUNGSI AUTH & IDENTITY ---
 def get_headers():
     global CURRENT_TOKEN
     if not CURRENT_TOKEN:
         log("🔄 Token kosong. Mencoba generate token baru...")
         generate_token()
-    
     return {
         "Authorization": f"Bearer {CURRENT_TOKEN}",
         "Content-Type": "application/json"
@@ -45,21 +47,37 @@ def generate_token():
     try:
         url = f"{WA_BASE_URL}/api/{WA_SESSION_NAME}/{WA_SECRET_KEY}/generate-token"
         r = requests.post(url)
-        if r.status_code == 200 or r.status_code == 201:
+        if r.status_code in [200, 201]:
             resp = r.json()
             token = resp.get("token") or resp.get("session") 
-            if not token and "full" in resp:
-                 token = resp["full"].split(":")[-1]
-
+            if not token and "full" in resp: token = resp["full"].split(":")[-1]
             if token:
                 CURRENT_TOKEN = token
-                log(f"✅ Berhasil Generate Token: {str(token)[:15]}...")
+                log(f"✅ Berhasil Generate Token.")
+                # Kita tetap coba fetch data terbaru, tapi kalau gagal, kita pakai MY_NUMBER yg hardcoded
+                fetch_my_number()
+            else: log(f"❌ Gagal Parse Token.")
+        else: log(f"❌ Gagal Generate Token: {r.status_code}")
+    except Exception as e: log(f"❌ Error Auth: {e}")
+
+def fetch_my_number():
+    global MY_NUMBER
+    try:
+        # Minta info device ke WPPConnect
+        url = f"{WA_BASE_URL}/api/{WA_SESSION_NAME}/host-device"
+        r = requests.get(url, headers=get_headers())
+        if r.status_code == 200:
+            data = r.json().get("response", {})
+            wid = data.get("wid", {}).get("user")
+            if wid:
+                MY_NUMBER = wid
+                log(f"🤖 Bot mengenali dirinya (Updated from API): {MY_NUMBER}")
             else:
-                log(f"❌ Gagal Parse Token dari respon: {resp}")
+                log(f"⚠️ API Fetch kosong. Menggunakan nomor hardcoded: {MY_NUMBER}")
         else:
-            log(f"❌ Gagal Generate Token (Status {r.status_code}): {r.text}")
+            log(f"⚠️ Gagal fetch host-device ({r.status_code}). Menggunakan nomor hardcoded: {MY_NUMBER}")
     except Exception as e:
-        log(f"❌ Error Connection saat Auth: {e}")
+        log(f"⚠️ Error fetch identity: {e}. Menggunakan nomor hardcoded: {MY_NUMBER}")
 
 # --- FUNGSI UTILITY ---
 def get_base64_image(file_path):
@@ -74,94 +92,78 @@ def get_base64_image(file_path):
     except: return None, None
 
 def send_wpp_text(phone, message):
-    if not phone or str(phone) == "None":
-        log("⚠️ Batal kirim pesan karena nomor tujuan 'None'")
-        return
-
+    if not phone or str(phone) == "None": return
     url = f"{WA_BASE_URL}/api/{WA_SESSION_NAME}/send-message"
-    
-    # --- PERBAIKAN: Deteksi Grup Otomatis ---
-    # Jika nomor mengandung @g.us, set isGroup = True
     is_group_msg = "@g.us" in str(phone)
-    
-    payload = {
-        "phone": phone, 
-        "message": message, 
-        "isGroup": is_group_msg
-    }
-    
+    payload = {"phone": phone, "message": message, "isGroup": is_group_msg}
     try:
         r = requests.post(url, json=payload, headers=get_headers())
         log(f"📤 Balas ke {phone}: {r.status_code}")
-        
-        if r.status_code == 400:
-            log(f"❌ Gagal 400 (Bad Request). Cek Payload: {json.dumps(payload)}")
-        elif r.status_code == 401:
-            log("🔄 Token Expired/Salah. Regenerating...")
-            generate_token()
-    except Exception as e:
-        log(f"❌ Error Kirim Text: {e}")
+        if r.status_code == 401: generate_token()
+    except Exception as e: log(f"❌ Error Kirim Text: {e}")
 
 def send_wpp_image(phone, file_path, caption=""):
     if not phone: return
     url = f"{WA_BASE_URL}/api/{WA_SESSION_NAME}/send-image"
     base64_str, _ = get_base64_image(file_path)
     if not base64_str: return
-    
-    # --- PERBAIKAN: Deteksi Grup Otomatis ---
     is_group_msg = "@g.us" in str(phone)
+    payload = {"phone": phone, "base64": base64_str, "caption": caption, "isGroup": is_group_msg}
+    try: requests.post(url, json=payload, headers=get_headers())
+    except: pass
 
-    payload = {
-        "phone": phone, 
-        "base64": base64_str, 
-        "caption": caption, 
-        "isGroup": is_group_msg
-    }
-    
-    try:
-        r = requests.post(url, json=payload, headers=get_headers())
-        log(f"🖼️ Kirim Gambar ke {phone}: {r.status_code}")
-    except Exception as e:
-        log(f"❌ Error Kirim Gambar: {e}")
-
-def process_logic(remote_jid, sender_name, message_body, is_group, has_mention):
+def process_logic(remote_jid, sender_name, message_body, is_group, mentioned_list):
     log(f"⚙️ Memproses Pesan: '{message_body}' dari {sender_name}")
     
-    if not message_body:
-        log("⚠️ Pesan kosong, diabaikan.")
-        return
-
-    # Logic trigger
     should_reply = False
-    if not is_group: should_reply = True
-    elif has_mention or "@faq" in message_body.lower(): should_reply = True
     
-    if not should_reply: 
-        log("⚠️ Pesan diabaikan (Tidak memenuhi syarat trigger)")
-        return
+    if not is_group:
+        # Chat Pribadi: Selalu balas
+        should_reply = True
+    else:
+        # Grup Logic
+        # 1. Cek keyword global
+        if "@faq" in message_body.lower():
+            should_reply = True
+        
+        # 2. Cek apakah saya (Bot) di-tag
+        # Logic: Cek apakah MY_NUMBER (62813...) ada di dalam salah satu ID yang dimention
+        if mentioned_list:
+            for mentioned_id in mentioned_list:
+                if str(MY_NUMBER) in str(mentioned_id):
+                    should_reply = True
+                    log("🔔 Saya di-tag! Membalas...")
+                    break
+            
+            if not should_reply:
+                log(f"⚠️ Ada tag di grup, tapi bukan ke saya ({MY_NUMBER}). Cuekin.")
+        
+        if not should_reply and not mentioned_list:
+             log("⚠️ Chat grup biasa tanpa tag/keyword. Cuekin.")
 
+    if not should_reply: return
+
+    # --- PROSES DATABASE ---
     clean_query = message_body.replace("@faq", "").strip()
     clean_query = re.sub(r'@\d+', '', clean_query).strip()
 
     if not clean_query:
-        send_wpp_text(remote_jid, f"Halo {sender_name}, silakan ketik pertanyaanmu.")
+        send_wpp_text(remote_jid, f"Halo {sender_name}, ada yang bisa dibantu?")
         return
 
-    log(f"🔍 Mencari di Database: '{clean_query}'")
+    log(f"🔍 Mencari: '{clean_query}'")
     try:
         results = database.search_faq_for_bot(clean_query, filter_tag="Semua Modul")
-    except Exception as e:
-        log(f"❌ Database Error: {e}")
-        send_wpp_text(remote_jid, "Maaf, database sedang gangguan.")
+    except:
+        send_wpp_text(remote_jid, "Maaf, database gangguan.")
         return
     
     if not results or not results['ids'][0]:
-        send_wpp_text(remote_jid, f"🙏 Maaf {sender_name}, tidak ditemukan jawaban untuk: *'{clean_query}'*.")
+        send_wpp_text(remote_jid, f"🙏 Tidak ditemukan jawaban untuk: *'{clean_query}'*.")
         return
 
     meta = results['metadatas'][0][0]
-    dist = results['distances'][0][0]
-    score = max(0, (1 - dist) * 100)
+    score = max(0, (1 - results['distances'][0][0]) * 100)
     
     reply_prefix = f"🤖 *FAQ Assistant* ({score:.0f}%)\n\n" if score >= 60 else f"🤔 Kurang yakin ({score:.0f}%):\n\n"
     judul = meta['judul']
@@ -198,39 +200,27 @@ async def wpp_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         body = await request.json()
         event = body.get("event")
-        
-        # log(f"📦 [RAW JSON]: {json.dumps(body)}") # Bisa dimatikan kalau log kepenuhan
 
         if event not in ["onMessage", "onAnyMessage", "onmessage"]:
             return {"status": "ignored_event"}
 
-        # Cek apakah 'data' ada. Jika tidak, pakai 'body' (root) sebagai data.
-        data = body.get("data")
-        if not data:
-            data = body # Fallback jika data message ada di root JSON
+        data = body.get("data") or body 
         
-        if data.get("fromMe", False) is True:
-            return {"status": "ignored_self"}
+        if data.get("fromMe", False) is True: return {"status": "ignored_self"}
 
-        remote_jid = data.get("from")
-        if not remote_jid: remote_jid = data.get("chatId")
-        if not remote_jid: remote_jid = data.get("sender", {}).get("id")
+        remote_jid = data.get("from") or data.get("chatId") or data.get("sender", {}).get("id")
+        if not remote_jid or "status@broadcast" in str(remote_jid): return {"status": "ignored_status"}
+
+        message_body = data.get("body") or data.get("content") or data.get("caption") or ""
         
-        if not remote_jid or "status@broadcast" in str(remote_jid): 
-            return {"status": "ignored_status"}
-
-        message_body = data.get("body")
-        if not message_body: message_body = data.get("content")
-        if not message_body: message_body = data.get("caption")
-        if not message_body: message_body = ""
-
-        log(f"📨 [PESAN MASUK] Dari: {remote_jid} | Isi: {message_body}")
+        log(f"📨 [PESAN MASUK] Group: {'@g.us' in str(remote_jid)} | Isi: {message_body}")
 
         sender_name = data.get("sender", {}).get("pushname", "User")
         is_group = data.get("isGroupMsg", False) or "@g.us" in str(remote_jid)
-        has_mention = bool(data.get("mentionedJidList"))
+        
+        mentioned_list = data.get("mentionedJidList", [])
 
-        background_tasks.add_task(process_logic, remote_jid, sender_name, message_body, is_group, has_mention)
+        background_tasks.add_task(process_logic, remote_jid, sender_name, message_body, is_group, mentioned_list)
         return {"status": "success"}
 
     except Exception as e:
@@ -239,7 +229,7 @@ async def wpp_webhook(request: Request, background_tasks: BackgroundTasks):
 
 @app.on_event("startup")
 async def startup_event():
-    log("🚀 Bot WA Start! Menyiapkan Token...")
+    log(f"🚀 Bot WA Start! Identity Hardcoded: {MY_NUMBER}")
     generate_token()
     try:
         requests.post(
@@ -247,9 +237,7 @@ async def startup_event():
             json={"webhook": "http://faq-bot:8000/webhook"},
             headers=get_headers()
         )
-        log("✅ Webhook Registered.")
-    except Exception as e:
-        log(f"⚠️ Gagal Register Webhook: {e}")
+    except: pass
 
 if __name__ == "__main__":
     uvicorn.run("bot_wa:app", host="0.0.0.0", port=8000)
