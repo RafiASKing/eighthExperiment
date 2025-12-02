@@ -21,16 +21,17 @@ WA_BASE_URL = os.getenv("WA_BASE_URL", "http://wppconnect:21465")
 WA_SECRET_KEY = os.getenv("WA_SESSION_KEY", "THISISMYSECURETOKEN") 
 WA_SESSION_NAME = "mysession"
 
-# Variable Global
-CURRENT_TOKEN = None
+# Ganti dengan IP/Domain Web V2 kamu
+WEB_V2_URL = "http://192.168.x.x:8080" 
 
-# --- UPDATE PENTING DI SINI ---
-# Kita pakai LIST (Daftar), bukan cuma satu nomor.
-# Masukkan Nomor HP dan ID LID (yang muncul di log error tadi)
-MY_IDENTITIES = [
-    "6281311933544",   # Nomor HP Asli
-    "244268396482699"  # ID Device/LID (Yang muncul di log tadi)
-]
+# --- LOAD IDENTITIES DARI .ENV ---
+# Pastikan di .env sudah ada: BOT_IDENTITIES=628xxx,244xxx
+raw_ids = os.getenv("BOT_IDENTITIES", "")
+# Ubah string jadi list, hilangkan spasi jika ada
+MY_IDENTITIES = [x.strip() for x in raw_ids.split(",") if x.strip()]
+
+# Variable Global Auth
+CURRENT_TOKEN = None
 
 # --- FUNGSI LOGGING ---
 def log(message):
@@ -79,7 +80,15 @@ def send_wpp_text(phone, message):
     if not phone or str(phone) == "None": return
     url = f"{WA_BASE_URL}/api/{WA_SESSION_NAME}/send-message"
     is_group_msg = "@g.us" in str(phone)
-    payload = {"phone": phone, "message": message, "isGroup": is_group_msg}
+    
+    # UPGRADE 1: Matikan Link Preview biar gak spammy (kotak gede diatas)
+    payload = {
+        "phone": phone, 
+        "message": message, 
+        "isGroup": is_group_msg,
+        "linkPreview": False 
+    }
+    
     try:
         r = requests.post(url, json=payload, headers=get_headers())
         log(f"📤 Balas ke {phone}: {r.status_code}")
@@ -97,64 +106,72 @@ def send_wpp_image(phone, file_path, caption=""):
     except: pass
 
 def process_logic(remote_jid, sender_name, message_body, is_group, mentioned_list):
-    log(f"⚙️ Memproses Pesan: '{message_body}' dari {sender_name}")
+    log(f"⚙️ Memproses Pesan: '{message_body}' dari {sender_name} (Group: {is_group})")
     
     should_reply = False
     
+    # === LOGIKA PEMISAH (GRUP vs JAPRI) ===
     if not is_group:
+        # KASUS JAPRI (DM):
+        # Selalu jawab! Gak perlu nunggu di-tag.
         should_reply = True
     else:
-        # 1. Cek keyword global
+        # KASUS GRUP:
+        # Harus ada keyword @faq ATAU Bot di-mention
         if "@faq" in message_body.lower():
             should_reply = True
         
-        # 2. Cek Mention (LOGIKA BARU: SUPPORT BANYAK ID)
-        if mentioned_list:
+        # Cek Mention ID (Support Multiple ID dari .env)
+        if mentioned_list and not should_reply:
             for mentioned_id in mentioned_list:
-                # Cek apakah ID yang di-mention ada di dalam daftar identitas kita
                 for my_id in MY_IDENTITIES:
                     if str(my_id) in str(mentioned_id):
                         should_reply = True
-                        log(f"🔔 Saya di-tag (via ID: {my_id})! Membalas...")
+                        log(f"🔔 Saya di-tag di Grup (via ID: {my_id})! Membalas...")
                         break
                 if should_reply: break
-            
-            if not should_reply:
-                log(f"⚠️ Ada tag di grup, tapi bukan ke saya {MY_IDENTITIES}. Cuekin.")
-        
-        if not should_reply and not mentioned_list:
-             log("⚠️ Chat grup biasa tanpa tag/keyword. Cuekin.")
+    
+    if not should_reply: 
+        # Kalau di grup dan ga dipanggil, diam aja.
+        return
 
-    if not should_reply: return
-
-    # --- PROSES DATABASE ---
-    # Bersihkan semua kemungkinan tag dari query
+    # --- BERSIHKAN QUERY ---
+    # Hapus tag @faq dan mention bot biar pencarian bersih
     clean_query = message_body.replace("@faq", "")
     for identity in MY_IDENTITIES:
-        clean_query = clean_query.replace(f"@{identity}", "") # Hapus tag nomor/id
+        clean_query = clean_query.replace(f"@{identity}", "") 
     
-    # Hapus sisa-sisa karakter aneh
+    # Hapus sisa-sisa format mention (@628xxx)
     clean_query = re.sub(r'@\d+', '', clean_query).strip()
 
     if not clean_query:
-        send_wpp_text(remote_jid, f"Halo {sender_name}, ada yang bisa dibantu?")
+        # Kalau cuma nge-tag doang tanpa nanya
+        send_wpp_text(remote_jid, f"Halo {sender_name}, silakan ketik pertanyaan Anda.")
         return
 
     log(f"🔍 Mencari: '{clean_query}'")
     try:
         results = database.search_faq_for_bot(clean_query, filter_tag="Semua Modul")
     except:
-        send_wpp_text(remote_jid, "Maaf, database gangguan.")
+        send_wpp_text(remote_jid, "Maaf, database sedang gangguan.")
         return
     
     if not results or not results['ids'][0]:
-        send_wpp_text(remote_jid, f"🙏 Tidak ditemukan jawaban untuk: *'{clean_query}'*.")
+        # Footer Gagal (Clean Text)
+        fail_msg = f"Maaf, tidak ditemukan hasil yang relevan untuk: '{clean_query}'\n\n"
+        fail_msg += f"Silakan cari manual di: {WEB_V2_URL}"
+        send_wpp_text(remote_jid, fail_msg)
         return
 
     meta = results['metadatas'][0][0]
     score = max(0, (1 - results['distances'][0][0]) * 100)
     
-    reply_prefix = f"🤖 *FAQ Assistant* ({score:.0f}%)\n\n" if score >= 60 else f"🤔 Kurang yakin ({score:.0f}%):\n\n"
+    # --- UPGRADE 2: HEADER CLEAN & OBJEKTIF ---
+    if score >= 60:
+        header = f"*Relevansi: {score:.0f}%*\n"
+    else:
+        header = f"*[Relevansi Rendah: {score:.0f}%]*\n" 
+
     judul = meta['judul']
     jawaban_raw = meta['jawaban_tampil']
     
@@ -170,19 +187,45 @@ def process_logic(remote_jid, sender_name, message_body, is_group, mentioned_lis
             idx = int(match.group(1)) - 1
             if 0 <= idx < len(img_db_list):
                 list_gambar_to_send.append(img_db_list[idx])
-                return f"*( 👇 Lihat Gambar {idx+1} )*"
+                return f"*(Lihat Gambar {idx+1})*"
             return ""
         except: return ""
 
     jawaban_processed = re.sub(r'\[GAMBAR\s*(\d+)\]', replace_tag, jawaban_raw, flags=re.IGNORECASE)
     if not list_gambar_to_send and img_db_list: list_gambar_to_send = img_db_list
 
-    final_text = f"{reply_prefix}❓ *{judul}*\n✅ {jawaban_processed}"
-    if meta.get('sumber_url'): final_text += f"\n🔗 {meta.get('sumber_url')}"
+    # Susun Bubble Utama
+    final_text = f"{header}\n"
+    final_text += f"*{judul}*\n\n"
+    final_text += f"{jawaban_processed}"
+    
+    # Sumber (Clean Note)
+    sumber_raw = meta.get('sumber_url')
+    sumber = str(sumber_raw).strip() if sumber_raw else ""
 
+    if len(sumber) > 3:
+        if "http" in sumber.lower():
+            final_text += f"\n\nSumber: {sumber}"
+        else:
+            final_text += f"\n\nNote: {sumber}"
+
+    # 1. Kirim Jawaban Teks
     send_wpp_text(remote_jid, final_text)
+    
+    # 2. Kirim Gambar (Jika ada)
     for i, img in enumerate(list_gambar_to_send):
-        send_wpp_image(remote_jid, img, caption=f"Gambar #{i+1}")
+        time.sleep(0.5) 
+        send_wpp_image(remote_jid, img, caption=f"Lampiran {i+1}")
+
+    # --- UPGRADE 3: Footer Bubble Terpisah ---
+    footer_text = "------------------------------\n"
+    footer_text += "Bukan jawaban yang dimaksud?\n\n"
+    footer_text += f"1. Cek Library Lengkap: {WEB_V2_URL}\n"
+    footer_text += "2. Atau gunakan *kalimat* spesifik beserta nama modul (IGD/Farmasi).\n"
+    footer_text += "Contoh: \"Cara edit obat di EMR ED\""
+    
+    time.sleep(0.5)
+    send_wpp_text(remote_jid, footer_text)
 
 @app.post("/webhook")
 async def wpp_webhook(request: Request, background_tasks: BackgroundTasks):
@@ -190,21 +233,24 @@ async def wpp_webhook(request: Request, background_tasks: BackgroundTasks):
         body = await request.json()
         event = body.get("event")
 
+        # Cek event standar
         if event not in ["onMessage", "onAnyMessage", "onmessage"]:
             return {"status": "ignored_event"}
 
         data = body.get("data") or body 
         
+        # Abaikan pesan dari diri sendiri
         if data.get("fromMe", False) is True: return {"status": "ignored_self"}
 
+        # Ambil ID Pengirim
         remote_jid = data.get("from") or data.get("chatId") or data.get("sender", {}).get("id")
         if not remote_jid or "status@broadcast" in str(remote_jid): return {"status": "ignored_status"}
 
         message_body = data.get("body") or data.get("content") or data.get("caption") or ""
         
-        log(f"📨 [PESAN MASUK] Group: {'@g.us' in str(remote_jid)} | Isi: {message_body}")
-
         sender_name = data.get("sender", {}).get("pushname", "User")
+        
+        # Penentuan Grup vs Japri
         is_group = data.get("isGroupMsg", False) or "@g.us" in str(remote_jid)
         
         mentioned_list = data.get("mentionedJidList", [])
@@ -218,7 +264,7 @@ async def wpp_webhook(request: Request, background_tasks: BackgroundTasks):
 
 @app.on_event("startup")
 async def startup_event():
-    log(f"🚀 Bot WA Start! Identities: {MY_IDENTITIES}")
+    log(f"🚀 Bot WA Start! Identities Loaded: {len(MY_IDENTITIES)}")
     generate_token()
     try:
         requests.post(

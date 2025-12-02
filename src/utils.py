@@ -6,6 +6,7 @@ import string
 import time
 import csv
 from datetime import datetime
+from PIL import Image
 from .config import TAGS_FILE, IMAGES_DIR, BASE_DIR 
 
 # --- DAFTAR WARNA RESMI STREAMLIT (Restricted Palette) ---
@@ -69,19 +70,40 @@ def save_uploaded_images(uploaded_files, judul, tag):
     clean_judul = sanitize_filename(judul)
     target_dir = os.path.join(IMAGES_DIR, tag)
     os.makedirs(target_dir, exist_ok=True)
+
+    resample_module = getattr(Image, "Resampling", None)
+    resample_method = resample_module.LANCZOS if resample_module else getattr(Image, "LANCZOS", Image.BICUBIC)
+    max_width = 1024
+    quality = 70
     
     for i, file in enumerate(uploaded_files):
-        ext = file.name.split('.')[-1]
-        # Tambah random suffix biar gak bentrok
         suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))
-        
-        filename = f"{clean_judul}_{tag}_{i+1}_{suffix}.{ext}"
+        filename = f"{clean_judul}_{tag}_{i+1}_{suffix}.jpg"
         full_path = os.path.join(target_dir, filename)
+
+        try:
+            if hasattr(file, "seek"):
+                file.seek(0)
+            image = Image.open(file)
+            if image.mode in ("RGBA", "P"):
+                image = image.convert("RGB")
+
+            if image.width > max_width:
+                ratio = max_width / float(image.width)
+                new_height = int(float(image.height) * ratio)
+                image = image.resize((max_width, new_height), resample_method)
+
+            image.save(full_path, "JPEG", quality=quality, optimize=True)
+        except Exception as e:
+            print(f"⚠️ Gagal compress gambar {file.name}: {e}")
+            if hasattr(file, "seek"):
+                file.seek(0)
+            with open(full_path, "wb") as f:
+                f.write(file.getbuffer())
+        finally:
+            if hasattr(file, "seek"):
+                file.seek(0)
         
-        with open(full_path, "wb") as f:
-            f.write(file.getbuffer())
-            
-        # Simpan relative path agar portable (Docker/Local)
         rel_path = f"./images/{tag}/{filename}"
         saved_paths.append(rel_path)
         

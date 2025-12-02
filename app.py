@@ -249,8 +249,15 @@ else:
         
         with st.expander(label):
             render_mixed_content(item.get('jawaban_tampil', '-'), item.get('path_gambar'))
-            if item.get('sumber_url') and len(str(item.get('sumber_url'))) > 3:
-                st.markdown(f"🔗 [Sumber Referensi]({item.get('sumber_url')})")
+            # --- LOGIKA "MAGER" TAPI AMAN ---
+            src_raw = item.get('sumber_url')
+            if src_raw and len(str(src_raw)) > 3:
+                src = str(src_raw).strip()
+
+                if "http" in src and " " not in src:
+                    st.markdown(f"🔗 [Buka Sumber Referensi]({src})")
+                else:
+                    st.markdown(f"🔗 **Sumber:** {src}")
 
     if total_pages > 1:
         st.markdown("---")

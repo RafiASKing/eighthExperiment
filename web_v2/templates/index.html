@@ -77,11 +77,8 @@
                     <div class="faq-content">
                         {{ item.html_content | safe }}
                         
-                        {% if item.sumber_url and item.sumber_url|length > 3 %}
-                            <br>
-                            <a href="{{ item.sumber_url }}" target="_blank" class="source-link">
-                                🔗 Buka Sumber Referensi
-                            </a>
+                        {% if item.source_html %}
+                            {{ item.source_html | safe }}
                         {% endif %}
                     </div>
                 </details>

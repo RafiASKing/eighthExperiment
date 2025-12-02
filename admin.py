@@ -2,14 +2,21 @@ import streamlit as st
 import pandas as pd
 import time
 import re
+import os
 from src import database, utils
-from src.config import ADMIN_PASSWORD, FAILED_SEARCH_LOG
+from src.config import ADMIN_PASSWORD_HASH, FAILED_SEARCH_LOG, BASE_DIR
+import bcrypt
+import shutil
 
-# --- AUTH SYSTEM ---
+
+
 if 'auth' not in st.session_state: st.session_state.auth = False
 
 def login():
-    if st.session_state.pass_input == ADMIN_PASSWORD: 
+    input_bytes = st.session_state.pass_input.encode('utf-8')
+    target_hash = ADMIN_PASSWORD_HASH.encode('utf-8')
+    
+    if bcrypt.checkpw(input_bytes, target_hash): 
         st.session_state.auth = True
     else:
         st.error("Password salah")
@@ -342,6 +349,49 @@ with tab4:
                     st.toast(f"Tag '{del_tag}' telah dihapus permanen.", icon="🗑️")
                     time.sleep(1)
                     st.rerun()
+
+    st.divider()
+    st.subheader("💾 Backup & Restore")
+    st.caption("Download seluruh data ChromaDB dan gambar agar aman saat server bermasalah.")
+
+    if st.button("📦 Download Full Backup", key="backup_btn"):
+        with st.spinner("Mempersiapkan arsip backup..."):
+            temp_dir = os.path.join(BASE_DIR, "tmp_backup_bundle")
+            archive_base = os.path.join(BASE_DIR, f"backup_faq_{int(time.time())}")
+            archive_file = ""
+            backup_bytes = None
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                os.makedirs(temp_dir, exist_ok=True)
+
+                copied_any = False
+                for folder_name in ["data", "images"]:
+                    src_path = os.path.join(BASE_DIR, folder_name)
+                    dst_path = os.path.join(temp_dir, folder_name)
+                    if os.path.exists(src_path):
+                        shutil.copytree(src_path, dst_path)
+                        copied_any = True
+
+                if not copied_any:
+                    st.warning("Folder data/images tidak ditemukan. Pastikan konfigurasi path sudah benar.")
+                else:
+                    archive_file = shutil.make_archive(archive_base, 'zip', temp_dir)
+                    with open(archive_file, "rb") as f:
+                        backup_bytes = f.read()
+            except Exception as e:
+                st.error(f"Gagal membuat backup: {e}")
+            finally:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                if archive_file and os.path.exists(archive_file):
+                    os.remove(archive_file)
+
+        if backup_bytes:
+            st.download_button(
+                label="⬇️ Klik untuk Simpan ZIP",
+                data=backup_bytes,
+                file_name=f"backup_faq_{int(time.time())}.zip",
+                mime="application/zip"
+            )
 
 # === TAB 5: ANALYTICS (FEEDBACK LOOP) ===
 with tab5:

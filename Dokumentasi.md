@@ -517,6 +517,108 @@ Laporan Teknis: Implementasi WhatsApp Gateway & Bot1. Arsitektur Saat Ini (MVP P
 
 
 
+<pengembangan_fitur_audit>
+Berikut adalah **Dokumentasi Perubahan & Rekap Teknis** untuk fitur baru pada sistem *Hospital Knowledge Base* kamu.
+
+Dokumen ini menjelaskan apa yang berubah, kenapa kita mengambil pendekatan "Jalur Cepat" (*Mager Approach*), dan bagaimana cara kerjanya.
+
+---
+
+# 📑 Dokumentasi Update: Smart Source & Audit Display
+
+**Tanggal:** 2 Desember 2025
+**Status:** ✅ Siap Deploy
+**Komponen Terdampak:** `app.py`, `main.py`, `index.html`, `style.css`
+
+---
+
+## 1. Masalah & Latar Belakang (The Problem)
+
+**Kebutuhan Awal:**
+Admin ingin menambahkan informasi **Audit Trail** (Siapa yang memvalidasi SOP/FAQ) selain hanya menyantumkan **Link URL** sumber.
+
+**Kendala Teknis:**
+*   Sistem lama hanya menganggap kolom `Source` sebagai Link URL murni.
+*   Jika Admin menulis teks campuran (contoh: *"Acc by dr. Budi (https://siloam...)"*), sistem lama akan error atau menampilkan link yang rusak (404) karena menganggap seluruh teks adalah URL.
+
+**Opsi Solusi:**
+1.  **Hard Way (Dibatalkan):** Memecah database jadi dua kolom (`Validator Name` & `URL`), bikin regex rumit di Admin untuk memecah string lama. *Resiko tinggi, effort besar.*
+2.  **Smart Way (Dipilih):** Membiarkan database apa adanya (1 kolom string), tapi membuat **Frontend** (Tampilan) menjadi cerdas dalam membaca isi kolom tersebut.
+
+---
+
+## 2. Solusi: "Smart Rendering Logic" (The What & Why)
+
+Kita memilih **Smart Way** dengan alasan:
+*   **Zero Risk:** Tidak perlu ubah struktur Database ChromaDB.
+*   **Backward Compatible:** Data lama (yang cuma URL) tetap aman. Data baru (Teks + URL) otomatis terdeteksi.
+*   **User Experience:** Admin bebas mengetik apa saja di kolom Source.
+
+### Logika Perubahan (Before vs After)
+
+| Fitur | Sebelum (Old) | Sesudah (New) |
+| :--- | :--- | :--- |
+| **Input Admin** | Hanya menerima Link (HTTP). | Bebas (Link doang boleh, Teks + Link boleh). |
+| **Tampilan User** | Langsung render jadi Tombol Link `[Klik Disini]`. | **Cek Otomatis:**<br>1. Jika URL murni → Jadi Tombol.<br>2. Jika Teks Campuran → Tampilkan Teks + Auto-link URL-nya. |
+| **Resiko Error** | Tinggi jika ada spasi/teks di kolom link. | Hampir Nol (Sistem menangani semua jenis string). |
+
+---
+
+## 3. Rincian Teknis Perubahan (Technical Change Log)
+
+Berikut adalah detail apa saja yang diubah oleh Coding Assistant kamu:
+
+### A. Streamlit User App (`app.py`)
+*   **Perubahan:** Menambahkan logika `if "http" in src and " " not in src`.
+*   **Tujuan:** Membedakan mana yang URL murni (dijadikan tombol markdown) dan mana yang Audit Info (dijadikan teks biasa dengan link clickable).
+
+### B. Web Backend (`main.py`)
+*   **Perubahan:**
+    *   Membuat variabel baru `item['source_html']`.
+    *   Menggunakan **Regex** `re.sub(...)` untuk mencari URL di dalam teks panjang dan membungkusnya dengan tag `<a href="...">` agar bisa diklik.
+    *   Membungkus hasil akhir dengan `<div class="source-box">`.
+*   **Tujuan:** Menyiapkan HTML yang rapi untuk dikirim ke template web.
+
+### C. Web Template (`templates/index.html`)
+*   **Perubahan:** Menambahkan kode `{{ item.source_html | safe }}` di dalam loop hasil pencarian.
+*   **Tujuan:** Menampilkan hasil olahan dari `main.py` ke layar pengguna. Tanpa ini, logika backend tidak akan terlihat.
+
+### D. Web Styling (`static/style.css`)
+*   **Perubahan:** Menambahkan class `.source-box`.
+*   **Tujuan:** Memberikan desain (background abu-abu, padding, radius) agar informasi sumber/audit terlihat rapi dan terpisah dari jawaban utama.
+
+---
+
+## 4. Cara Kerja Sistem Baru (Flowchart)
+
+Saat User mencari SOP:
+
+1.  **Database** mengembalikan string kolom `Source`.
+    *   *Contoh A (Lama):* `"https://siloam.com"`
+    *   *Contoh B (Baru):* `"Validasi IT Support (https://siloam.com)"`
+    *   *Contoh C (Manual):* `"SOP Internal Hardcopy"`
+
+2.  **Logic Filter (App/Web):**
+    *   Apakah ada "http"?
+        *   **Ya:** Apakah ada spasi?
+            *   **Tidak (Contoh A):** Render sebagai **Tombol Link Eksklusif**.
+            *   **Ya (Contoh B):** Render sebagai **Audit Note** (Teks hitam + Link biru).
+        *   **Tidak (Contoh C):** Render sebagai **Teks Info Biasa**.
+
+---
+
+## 5. Kesimpulan & Rekomendasi Deploy
+
+Kamu sekarang memiliki sistem yang **lebih robust** (tahan banting). Admin tidak perlu takut salah input, dan User mendapatkan informasi transparansi (Audit Trail) tanpa merusak fungsi Link.
+
+**Langkah Selanjutnya:**
+1.  **Replace File:** Timpa `app.py`, `main.py`, `index.html`, `style.css` dengan kode baru.
+2.  **Restart Container:** Jalankan `docker-compose restart`.
+3.  **Selesai.** Tidak perlu scan QR ulang, tidak perlu migrasi database.
+
+Sistem Knowledge Base kamu sekarang sudah naik level! 🚀🏥
+</pengembangan_fitur_audit>
+
 Berikut untuk codesnya yang terbaru:
 
 <kode_baru>

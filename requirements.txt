@@ -12,3 +12,5 @@ watchdog
 jinja2
 python-multipart
 markdown
+bcrypt
+Pillow

@@ -6,7 +6,7 @@ load_dotenv()
 
 # --- API KEYS & AUTH ---
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "veven")
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "admin")
 
 if not GOOGLE_API_KEY:
     raise ValueError("❌ GOOGLE_API_KEY belum diset! Cek file .env.")

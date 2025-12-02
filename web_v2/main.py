@@ -182,6 +182,21 @@ async def read_root(request: Request, q: str = "", tag: str = "Semua Modul", pag
             item.get('path_gambar', '')
         )
 
+        # --- LOGIKA "MAGER" TAPI AMAN ---
+        src_raw = item.get('sumber_url')
+        src = str(src_raw).strip() if src_raw else ""
+        item['source_html'] = ""
+
+        if len(src) > 3:
+            if "http" in src and " " not in src:
+                item['source_html'] = (
+                    f'<div class="source-box"><a href="{src}" target="_blank">'
+                    "🔗 Buka Sumber Referensi</a></div>"
+                )
+            else:
+                linked_src = re.sub(r'(https?://\S+)', r'<a href="\1" target="_blank">\1</a>', src)
+                item['source_html'] = f'<div class="source-box">🔗 {linked_src}</div>'
+
     return templates.TemplateResponse("index.html", {
         "request": request, 
         "results": results, 
