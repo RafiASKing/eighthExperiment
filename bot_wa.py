@@ -22,7 +22,7 @@ WA_SECRET_KEY = os.getenv("WA_SESSION_KEY", "THISISMYSECURETOKEN")
 WA_SESSION_NAME = "mysession"
 
 # Ganti dengan IP/Domain Web V2 kamu
-WEB_V2_URL = "http://192.168.x.x:8080" 
+WEB_V2_URL = "http://43.218.92.10:8080/" 
 
 # --- LOAD IDENTITIES DARI .ENV ---
 # Pastikan di .env sudah ada: BOT_IDENTITIES=628xxx,244xxx
@@ -81,12 +81,18 @@ def send_wpp_text(phone, message):
     url = f"{WA_BASE_URL}/api/{WA_SESSION_NAME}/send-message"
     is_group_msg = "@g.us" in str(phone)
     
-    # UPGRADE 1: Matikan Link Preview biar gak spammy (kotak gede diatas)
+    # UPGRADE: "Jurus Mabuk" (Double Parameter)
+    # Kita taruh linkPreview di luar DAN di dalam 'options'
+    # Biar versi WPPConnect manapun tetap nurut.
     payload = {
         "phone": phone, 
         "message": message, 
         "isGroup": is_group_msg,
-        "linkPreview": False 
+        "linkPreview": False,   # Cara Lama (Legacy)
+        "options": {
+            "linkPreview": False, # Cara Baru (Standard)
+            "createChat": True
+        }
     }
     
     try:
@@ -187,7 +193,7 @@ def process_logic(remote_jid, sender_name, message_body, is_group, mentioned_lis
             idx = int(match.group(1)) - 1
             if 0 <= idx < len(img_db_list):
                 list_gambar_to_send.append(img_db_list[idx])
-                return f"*(Lihat Gambar {idx+1})*"
+                return f"*( 👇 Lihat Gambar {idx+1} )*"
             return ""
         except: return ""
 
@@ -196,7 +202,9 @@ def process_logic(remote_jid, sender_name, message_body, is_group, mentioned_lis
 
     # Susun Bubble Utama
     final_text = f"{header}\n"
+    final_text += f"Pertanyaan / Topik:\n"
     final_text += f"*{judul}*\n\n"
+    final_text += f"Jawaban / Penjelasan:\n"
     final_text += f"{jawaban_processed}"
     
     # Sumber (Clean Note)
@@ -205,9 +213,9 @@ def process_logic(remote_jid, sender_name, message_body, is_group, mentioned_lis
 
     if len(sumber) > 3:
         if "http" in sumber.lower():
-            final_text += f"\n\nSumber: {sumber}"
+            final_text += f"\n\n\nSumber: {sumber}"
         else:
-            final_text += f"\n\nNote: {sumber}"
+            final_text += f"\n\n\nNote: {sumber}"
 
     # 1. Kirim Jawaban Teks
     send_wpp_text(remote_jid, final_text)
@@ -220,9 +228,9 @@ def process_logic(remote_jid, sender_name, message_body, is_group, mentioned_lis
     # --- UPGRADE 3: Footer Bubble Terpisah ---
     footer_text = "------------------------------\n"
     footer_text += "Bukan jawaban yang dimaksud?\n\n"
-    footer_text += f"1. Cek Library Lengkap: {WEB_V2_URL}\n"
-    footer_text += "2. Atau gunakan *kalimat* spesifik beserta nama modul (IGD/Farmasi).\n"
-    footer_text += "Contoh: \"Cara edit obat di EMR ED\""
+    footer_text += f"1. Cek FaQs dan SOPs Lengkap: {WEB_V2_URL}\n"
+    footer_text += "2. Atau gunakan *kalimat lebih spesifik* beserta nama modul (ex: IGD/ED/IPD).\n"
+    footer_text += "Contoh: \"Gimana cara edit obat di EMR ED Pharmacy?\""
     
     time.sleep(0.5)
     send_wpp_text(remote_jid, footer_text)
